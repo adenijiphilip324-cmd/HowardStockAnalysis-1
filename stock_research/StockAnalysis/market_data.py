@@ -8,6 +8,7 @@ Falls back to yfinance if Polygon key is not set or call fails.
 
 import logging
 import os
+import time
 import requests
 import pandas as pd
 from datetime import date, timedelta
@@ -18,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
 POLYGON_BASE    = "https://api.polygon.io"
+
+# Polygon free plan: 5 requests/minute → 12s between calls
+_POLYGON_MIN_INTERVAL = 12.0
+_last_polygon_call: float = 0.0
 
 
 def get_market_data(ticker: str) -> dict | None:
@@ -46,6 +51,14 @@ def _get_from_polygon(ticker: str) -> dict | None:
     TSX tickers: Polygon uses "X:SU" format for Canadian stocks.
     Strip the .TO / .V suffix before calling.
     """
+    global _last_polygon_call
+    elapsed = time.time() - _last_polygon_call
+    if elapsed < _POLYGON_MIN_INTERVAL:
+        wait = _POLYGON_MIN_INTERVAL - elapsed
+        logger.debug(f"Polygon rate limiter: sleeping {wait:.1f}s")
+        time.sleep(wait)
+    _last_polygon_call = time.time()
+
     try:
         # Strip exchange suffix for Polygon (SU.TO -> SU, SHOP.TO -> SHOP)
         polygon_ticker = ticker.replace(".TO", "").replace(".V", "")
@@ -110,7 +123,7 @@ def _get_from_polygon(ticker: str) -> dict | None:
 def _get_from_yfinance(ticker: str) -> dict | None:
     """Fallback: fetch from yfinance (free, no API key needed)."""
     try:
-        import yfinance as yf
+        import yfinance as yf  # noqa: F401 — may fail if multitasking not built
         data = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
 
         if data.empty or len(data) < 15:
