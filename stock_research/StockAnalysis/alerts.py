@@ -34,91 +34,79 @@ DISCLAIMER = (
 
 
 def build_email_html(signals: list[dict]) -> str:
-    """Build a clean HTML email body for the top signals."""
+    """Build a clean, bulletproof HTML email table."""
     rows = ""
     for s in signals:
-        tp = f"${s['take_profit']}" if s["take_profit"] else "Hold to Close"
-        rows += f"""
-        <tr>
-          <td style="padding:8px;border:1px solid #ddd;"><b>{s['ticker']}</b></td>
-          <td style="padding:8px;border:1px solid #ddd;">{s['company']}</td>
-          <td style="padding:8px;border:1px solid #ddd;">{s.get('rating', 'N/A')} ({s['total_score']})</td>
-          <td style="padding:8px;border:1px solid #ddd;">${s['entry_price']}</td>
-          <td style="padding:8px;border:1px solid #ddd;">${s['stop_loss']}</td>
-          <td style="padding:8px;border:1px solid #ddd;">{tp}</td>
-          <td style="padding:8px;border:1px solid #ddd;">{s.get('variant', 'Technical')}</td>
-          <td style="padding:8px;border:1px solid #ddd;">{s['rationale']}</td>
-        </tr>"""
+        tp = f"${s['take_profit']}" if s.get("take_profit") else "N/A"
+        variant = s.get("variant", "Technical")
+        rating = s.get("rating", f"Score: {s['total_score']}")
+        
+        rows += (
+            f"<tr style='border-bottom:1px solid #eee;'>"
+            f"<td style='padding:12px;font-weight:bold;color:#1a3c6e;'>{s['ticker']}</td>"
+            f"<td style='padding:12px;'>{s['company']}</td>"
+            f"<td style='padding:12px;color:#2e7d32;font-weight:bold;'>{rating}</td>"
+            f"<td style='padding:12px;'>${s['entry_price']}</td>"
+            f"<td style='padding:12px;'>${s['stop_loss']}</td>"
+            f"<td style='padding:12px;'>{tp}</td>"
+            f"<td style='padding:12px;font-size:12px;color:#666;'>{s['rationale']}</td>"
+            "</tr>"
+        )
 
     return f"""
-    <html><body style="font-family:Arial,sans-serif;color:#333;">
-      <h2 style="color:#1a3c6e;">📈 Insider Scanner — {date.today()}</h2>
-      <p>Found <b>{len(signals)}</b> qualifying insider signals today.</p>
-      <table style="border-collapse:collapse;width:100%;">
-        <thead>
-          <tr style="background:#1a3c6e;color:white;">
-            <th style="padding:8px;">Ticker</th>
-            <th style="padding:8px;">Company</th>
-            <th style="padding:8px;">Rating</th>
-            <th style="padding:8px;">Entry</th>
-            <th style="padding:8px;">Stop Loss</th>
-            <th style="padding:8px;">Take Profit</th>
-            <th style="padding:8px;">Variant</th>
-            <th style="padding:8px;">Rationale</th>
-          </tr>
-        </thead>
-        <tbody>{rows}</tbody>
-      </table>
-      <p style="color:#888;font-size:12px;margin-top:20px;">{DISCLAIMER}</p>
-    </body></html>
+    <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;max-width:800px;margin:auto;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+        <div style="background:#1a3c6e;color:white;padding:20px;text-align:center;">
+            <h1 style="margin:0;font-size:24px;">📈 Market Signal Scan — {date.today()}</h1>
+        </div>
+        <div style="padding:20px;">
+            <p>We found <b>{len(signals)}</b> high-conviction signals matching your criteria.</p>
+            <table style="width:100%;border-collapse:collapse;text-align:left;font-size:14px;">
+                <thead>
+                    <tr style="background:#f8f9fa;color:#555;text-transform:uppercase;font-size:11px;letter-spacing:1px;">
+                        <th style="padding:12px;border-bottom:2px solid #ddd;">Ticker</th>
+                        <th style="padding:12px;border-bottom:2px solid #ddd;">Company</th>
+                        <th style="padding:12px;border-bottom:2px solid #ddd;">Rating/Score</th>
+                        <th style="padding:12px;border-bottom:2px solid #ddd;">Entry</th>
+                        <th style="padding:12px;border-bottom:2px solid #ddd;">SL</th>
+                        <th style="padding:12px;border-bottom:2px solid #ddd;">TP</th>
+                        <th style="padding:12px;border-bottom:2px solid #ddd;">Rationale</th>
+                    </tr>
+                </thead>
+                <tbody>{rows}</tbody>
+            </table>
+            <div style="background:#fff3e0;border-left:4px solid #ff9800;padding:15px;margin-top:20px;font-size:12px;color:#5d4037;">
+                <b>Disclaimer:</b> {DISCLAIMER}
+            </div>
+        </div>
+    </div>
     """
 
 
 def build_slack_message(signals: list[dict]) -> str:
-    """Build a Slack-formatted message matching the preferred detailed format."""
+    """Build a condensed, premium Slack message."""
     if not signals:
-        return f"📊 Insider Scanner ({date.today()}): No qualifying signals today."
+        return f"📊 Market Scan ({date.today()}): No qualifying signals today."
 
-    lines = [f":chart_with_upwards_trend: Insider Scanner — {date.today()}"]
+    lines = [f"🚀 *Market Analysis Scan — {date.today()}*"]
     
-    for s in signals:
-        tp = f"{s['take_profit']}" if s["take_profit"] else "Hold to Close"
+    for s in signals[:5]: # Only top 5 in Slack to avoid truncation
+        tp = f"${s['take_profit']}" if s.get("take_profit") else "N/A"
         
-        # Determine star rating emoji
-        if s['total_score'] >= 80:
-            star = ":star2: STRONG BUY"
-        elif s['total_score'] >= 60:
-            star = ":star: BUY"
-        else:
-            star = ":white_check_mark: WATCH"
-            
-        same_day_text = str(s.get('same_day_insiders', 1))
-        repeat_text = "Yes :white_check_mark:" if s.get('is_repeat_buy') else "No"
-        
-        lines.append("")
-        lines.append(f"*{s['ticker']}* — {s['company']}")
-        # Technical-specific fields
+        # Determine status/score
         if 'momentum_score' in s:
-            lines.append(f"📡 *Technical MGPR Score: {s['total_score']}/100*")
-            lines.append(f"📊 RSI: {s['rsi']} | MACD: {s['macd_signal']}")
-            lines.append(f"📐 Breakdown → Trend: {s['trend_score']} | Mom: {s['momentum_score']} | Vol: {s['volatility_score']} | Volm: {s['volume_score']}")
+            header = f"📡 *{s['ticker']}* — MGPR: {s['total_score']}/100"
+            details = f"RSI: {s['rsi']:.1f} | ATR: {s.get('atr_pct', 'N/A')}%"
         else:
-            # Insider-specific fields
-            lines.append(f"{star}  |  Score: {s['total_score']}/100")
-            lines.append("")
-            lines.append(f":bust_in_silhouette: {s['insider_name']} ({s['title']}) bought {s['shares']:,.0f} shares @ ${s['price_paid']:,.2f}")
-            lines.append(f":moneybag: Total Value: ${s['total_value']:,.0f}")
-            lines.append(f":bar_chart: ATR: {s['atr_pct']}%  |  Variant: {s.get('variant', 'N/A')}")
-            lines.append(f":busts_in_silhouette: Same-day insiders: {s.get('same_day_insiders', 1)}  |  Repeat buy: {'Yes :white_check_mark:' if s.get('is_repeat_buy') else 'No'}")
+            header = f"👤 *{s['ticker']}* — Insider Score: {s['total_score']}/100"
+            details = f"Buy: ${s.get('total_value', 0):,.0f} | {s.get('insider_name', 'N/A')}"
 
-        lines.append(f":dart: Entry: ${s['entry_price']}  |  SL: ${s['stop_loss']}  |  TP: {tp}")
-        
-        if s.get('spy_gap_note'):
-            lines.append(f":chart_with_downwards_trend: {s['spy_gap_note']}")
-            
-        lines.append("")
-        lines.append(f"{s['rationale']}")
-        lines.append("────────────────────────────────────────")
+        lines.append(f"\n{header}")
+        lines.append(f"> :dart: Entry: *${s['entry_price']}* | SL: *${s['stop_loss']}* | TP: *{tp}*")
+        lines.append(f"> 📊 {details}")
+        lines.append(f"> 📝 _{s['rationale']}_")
+
+    if len(signals) > 5:
+        lines.append(f"\n_...and {len(signals) - 5} more on your Airtable dashboard._")
 
     lines.append(f"\n_{DISCLAIMER}_")
     return "\n".join(lines)

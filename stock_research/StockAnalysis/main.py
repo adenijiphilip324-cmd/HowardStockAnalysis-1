@@ -135,13 +135,20 @@ def run():
 
     # ── Step 7: Technical Scan ──────────────────────────────────
     logger.info("Starting Technical MGPR Scans ($5, $10, $20)...")
-    tech_signals = []
+    tech_map = {}
     for threshold in [5.0, 10.0, 20.0]:
         try:
-            signals_batch = get_technical_signals(price_threshold=threshold)
-            tech_signals.extend(signals_batch)
+            batch = get_technical_signals(price_threshold=threshold)
+            for s in batch:
+                ticker = s["ticker"]
+                # Keep if new or if this version has a higher score
+                if ticker not in tech_map or s["total_score"] > tech_map[ticker]["total_score"]:
+                    tech_map[ticker] = s
         except Exception as e:
             logger.error(f"Technical scan for ${threshold} failed: {e}")
+    
+    tech_signals = list(tech_map.values())
+    logger.info(f"Generated {len(tech_signals)} unique Technical signals")
 
     # ── Step 8: Push Technical Signals to Airtable ─────────────
     if tech_signals:
