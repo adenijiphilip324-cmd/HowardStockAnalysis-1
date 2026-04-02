@@ -39,7 +39,7 @@ import yfinance as yf
 from dotenv import load_dotenv
 
 from scraper import fetch_insider_buys
-from market_data import get_market_data
+from market_data import get_market_data, get_spy_gap
 from scorer import score_trade, detect_repeat_buys, count_same_day_insiders
 from technical_scanner import get_technical_signals, calculate_mgpr
 from airtable_push import push_backtest_result
@@ -56,7 +56,8 @@ logger = logging.getLogger(__name__)
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 # How many calendar days to hold after entry if no TP/SL is hit
-DEFAULT_HOLD_DAYS = 10
+# WSV Mastery is strictly 1-day (intraday) buy-at-open sell-at-close.
+DEFAULT_HOLD_DAYS = 1
 
 # Risk-free rate for Sharpe calculation (annualised %)
 RISK_FREE_RATE_ANNUAL = 4.5   # ~current T-bill rate
@@ -77,97 +78,78 @@ def simulate_trade(
     hold_days: int = DEFAULT_HOLD_DAYS,
 ) -> dict | None:
     """
-    Simulate a single trade by looking at post-entry daily closes.
-
-    Returns a dict with:
-      outcome     : "win" | "loss" | "hold"
-      return_pct  : % gain/loss from entry to exit
-      exit_price  : price at exit
-      exit_date   : date of exit
-      exit_reason : "take_profit" | "stop_loss" | "time_exit"
+    Simulate a single trade by looking at post-entry daily data.
+    WSV Sync: models same-day (Buy at Open, Exit by Close).
     """
     try:
-        # Fetch price data starting from the day after entry
-        fetch_start = entry_date + timedelta(days=1)
-        fetch_end   = entry_date + timedelta(days=hold_days + 10)  # buffer
+        # We assume the signal is traded the day AFTER the report date (or next trading day)
+        fetch_start = entry_date 
+        fetch_end   = entry_date + timedelta(days=7) # Get a week to find the next trading day
 
-        # Retry logic for yfinance connection issues
-        data = None
-        for attempt in range(3):
-            try:
-                data = yf.download(
-                    ticker,
-                    start=fetch_start.strftime("%Y-%m-%d"),
-                    end=fetch_end.strftime("%Y-%m-%d"),
-                    interval="1d",
-                    progress=False,
-                    auto_adjust=True,
-                    timeout=20,
-                )
-                if data is not None and not data.empty:
-                    break
-            except Exception as e:
-                logger.warning(f"yfinance attempt {attempt+1} failed for {ticker}: {e}")
-                time.sleep(2)
+        data = yf.download(
+            ticker,
+            start=fetch_start.strftime("%Y-%m-%d"),
+            end=fetch_end.strftime("%Y-%m-%d"),
+            interval="1d",
+            progress=False,
+            auto_adjust=True,
+        )
 
         if data is None or data.empty:
-            logger.warning(f"No post-entry data for {ticker} after {entry_date}")
             return None
 
-        # Flatten MultiIndex if needed (single ticker yfinance quirk)
+        # Flatten MultiIndex
         if hasattr(data.columns, "levels"):
             data.columns = data.columns.droplevel(1)
 
-        # Simulate day by day
-        trading_day = 0
-        for idx in data.index:
-            if trading_day >= hold_days:
-                break
+        # We buy on the first available trading day ON or AFTER the report date
+        # (Though usually one day after is safer for backtests)
+        trading_days = data[data.index.date >= entry_date]
+        if trading_days.empty:
+            return None
 
-            row_high  = float(data.loc[idx, "High"])
-            row_low   = float(data.loc[idx, "Low"])
-            row_close = float(data.loc[idx, "Close"])
-            ex_date   = idx.date() if hasattr(idx, "date") else idx
+        # Use the first trading day as the execution day
+        exec_day_idx = 0
+        if len(trading_days) > 1:
+            exec_day_idx = 1 # Buy 1 day after filing
+            
+        target_day = trading_days.iloc[exec_day_idx]
+        ex_date    = trading_days.index[exec_day_idx].date()
 
-            # Check stop loss first (worst case within day)
-            if row_low <= stop_loss:
-                return_pct = ((stop_loss - entry_price) / entry_price) * 100
-                return {
-                    "outcome":     "loss",
-                    "return_pct":  round(return_pct, 2),
-                    "exit_price":  stop_loss,
-                    "exit_date":   str(ex_date),
-                    "exit_reason": "stop_loss",
-                    "hold_days":   trading_day + 1,
-                }
+        day_high  = float(target_day["High"])
+        day_low   = float(target_day["Low"])
+        day_close = float(target_day["Close"])
 
-            # Check take profit
-            if take_profit and row_high >= take_profit:
-                return_pct = ((take_profit - entry_price) / entry_price) * 100
-                return {
-                    "outcome":     "win",
-                    "return_pct":  round(return_pct, 2),
-                    "exit_price":  take_profit,
-                    "exit_date":   str(ex_date),
-                    "exit_reason": "take_profit",
-                    "hold_days":   trading_day + 1,
-                }
+        # 1. Check Stop Loss (Priority 1)
+        if day_low <= stop_loss:
+            return {
+                "outcome":     "loss",
+                "return_pct":  round(((stop_loss - entry_price) / entry_price) * 100, 2),
+                "exit_price":  stop_loss,
+                "exit_date":   str(ex_date),
+                "exit_reason": "stop_loss",
+                "hold_days":   1,
+            }
 
-            trading_day += 1
+        # 2. Check Take Profit (Priority 2)
+        if take_profit and day_high >= take_profit:
+            return {
+                "outcome":     "win",
+                "return_pct":  round(((take_profit - entry_price) / entry_price) * 100, 2),
+                "exit_price":  take_profit,
+                "exit_date":   str(ex_date),
+                "exit_reason": "take_profit",
+                "hold_days":   1,
+            }
 
-        # Time exit — use last available close
-        last_close  = float(data["Close"].iloc[min(hold_days - 1, len(data) - 1)])
-        last_date   = data.index[min(hold_days - 1, len(data) - 1)]
-        ex_date     = last_date.date() if hasattr(last_date, "date") else last_date
-        return_pct  = ((last_close - entry_price) / entry_price) * 100
-
+        # 3. Exit at Close (Default)
         return {
-            "outcome":     "win" if last_close > entry_price else "loss",
-            "return_pct":  round(return_pct, 2),
-            "exit_price":  round(last_close, 2),
+            "outcome":     "win" if day_close > entry_price else "loss",
+            "return_pct":  round(((day_close - entry_price) / entry_price) * 100, 2),
+            "exit_price":  round(day_close, 2),
             "exit_date":   str(ex_date),
-            "exit_reason": "time_exit",
-            "hold_days":   trading_day,
+            "exit_reason": "market_close",
+            "hold_days":   1,
         }
 
     except Exception as e:
@@ -383,12 +365,15 @@ def run_insider_backtest(date_start: date, date_end: date) -> list[dict]:
     same_day_cnts = count_same_day_insiders(raw_trades)
     market_cache  = {}
     results       = []
+    total_raw     = len(raw_trades)
 
-    for trade in raw_trades:
+    for i, trade in enumerate(raw_trades, 1):
         ticker = trade["ticker"]
+        logger.info(f"[{i}/{total_raw}] Simulating {ticker} (entry: {trade['trade_date']})...")
+        
         if ticker not in market_cache:
             market_cache[ticker] = get_market_data(ticker)
-            time.sleep(1)   # gentle rate limit
+            time.sleep(0.5)   # gentle rate limit
 
         market = market_cache.get(ticker)
         if not market:
@@ -396,13 +381,16 @@ def run_insider_backtest(date_start: date, date_end: date) -> list[dict]:
 
         is_repeat  = (ticker, trade["insider_name"]) in repeat_keys
         same_day   = same_day_cnts.get(ticker, 1)
+        
+        # Mastery Sync: Fetch historical SPY gap for the entry date
+        spy_gap = get_spy_gap(trade["trade_date"] + timedelta(days=1))
 
         signal = score_trade(
             trade=trade,
             market=market,
             is_repeat=is_repeat,
             same_day_count=same_day,
-            spy_gap_pct=0.0,
+            spy_gap_pct=spy_gap,
         )
         if not signal:
             continue

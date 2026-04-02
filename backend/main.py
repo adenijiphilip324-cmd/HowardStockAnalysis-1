@@ -22,7 +22,7 @@ import os
 from dotenv import load_dotenv
 
 from scraper import fetch_insider_buys
-from market_data import get_market_data
+from market_data import get_market_data, get_spy_gap
 from scorer import score_trade, detect_repeat_buys, count_same_day_insiders
 from airtable_push import push_all_signals, log_run, log_alert, push_all_tech_signals
 from technical_scanner import get_technical_signals
@@ -45,6 +45,10 @@ def run():
     logger.info("=" * 60)
     logger.info("INSIDER SCANNER STARTING")
     logger.info("=" * 60)
+
+    # ── Step 0: Market Intelligence (SPY Gap) ────────────────────
+    spy_gap = get_spy_gap()
+    logger.info(f"Current SPY Gap: {spy_gap:+.2f}%")
 
     # ── Step 1: Scrape insider buys ──────────────────────────────
     try:
@@ -89,7 +93,7 @@ def run():
             market=market,
             is_repeat=is_repeat,
             same_day_count=same_day,
-            spy_gap_pct=0.0,  # TODO: fetch live SPY gap
+            spy_gap_pct=spy_gap,
         )
 
         if result:

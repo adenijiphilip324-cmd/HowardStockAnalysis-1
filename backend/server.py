@@ -21,18 +21,12 @@ Environment variables needed (same as .env):
 import os
 import sys
 import logging
+import asyncio
+from dotenv import load_dotenv
 import json
+from contextlib import asynccontextmanager
 from collections import deque
 from datetime import datetime, timezone, timedelta
-from contextlib import asynccontextmanager
-from pathlib import Path
-
-# Ensure the backend directory is in sys.path so 'main' and 'backtester' can be imported easily
-backend_dir = Path(__file__).parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
-
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +34,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from starlette.concurrency import run_in_threadpool
+from pathlib import Path
+
+# Ensure the backend directory is in sys.path so 'main' and 'backtester' can be imported easily
+backend_dir = Path(__file__).parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from market_data import get_spy_gap
 from typing import Dict
 
 load_dotenv()
@@ -54,6 +56,7 @@ logger = logging.getLogger(__name__)
 # --- Live Log Interceptor ---
 log_queue = deque(maxlen=200)
 is_pipeline_running = False
+is_health_checking = False
 
 class QueueHandler(logging.Handler):
     def emit(self, record):
@@ -88,8 +91,10 @@ def save_history_record(record: dict):
 
 RUN_SECRET = os.getenv("RUN_SECRET", "")  # set this in production!
 
-# In-memory last-run state
+# In-memory session state
 _last_run: dict = {"status": "never", "time": None, "signals": 0, "message": ""}
+_last_health_check_results: list = []
+_cached_spy_gap: float = 0.0
 
 scheduler = AsyncIOScheduler()
 
@@ -130,37 +135,58 @@ async def execute_pipeline_core(is_auto=False):
             "duration_sec": duration
         })
 
-def automated_pipeline_run():
-    logger.info("Triggering automated pipeline run via APScheduler...")
-    # Safe to call since APScheduler runs this synchronously but we can wrap it or just use create_task
-    import asyncio
-    asyncio.create_task(execute_pipeline_core(is_auto=True))
-
-async def automated_backtest_run():
-    """
-    Runs backtests for all modules every 3 days on a rolling 90-day window.
-    Since run_backtest is blocking, we use run_in_threadpool.
-    """
-    logger.info("Triggering automated strategy backtests (90-day window)...")
+async def execute_health_check_core(lookback_days: int = 30):
+    global is_health_checking, _last_health_check_results
+    if is_health_checking: return
+    is_health_checking = True
+    log_queue.clear()
+    
+    logger.info(f"Strategic Health Check started (Lookback: {lookback_days} days)")
     
     end_date   = datetime.now().date()
-    start_date = end_date - timedelta(days=90)
-    
-    start_str = start_date.strftime("%Y-%m-%d")
-    end_str   = end_date.strftime("%Y-%m-%d")
+    start_date = end_date - timedelta(days=lookback_days)
+    start_str  = start_date.strftime("%Y-%m-%d")
+    end_str    = end_date.strftime("%Y-%m-%d")
     
     modules = ["Insider", "Technical_Under_5", "Technical_Under_10", "Technical_Under_20"]
-    
+    results = []
+
     try:
         from backtester import run_backtest
         for module in modules:
-            logger.info(f"Starting auto-backtest for module: {module}")
-            # Offload blocking work to a threadpool to keep FastAPI responsive
-            await run_in_threadpool(run_backtest, module, start_str, end_str)
+            logger.info(f"Health check running for: {module}")
+            # Offload blocking work to a threadpool
+            metrics = await run_in_threadpool(run_backtest, module, start_str, end_str)
             
-        logger.info(f"Automated backtests completed for {len(modules)} modules.")
+            if metrics:
+                results.append({
+                    "module": module,
+                    "win_rate": metrics["win_rate"],
+                    "avg_return": metrics["average_return"],
+                    "total_return": metrics["total_return"],
+                    "trades": metrics["total_trades"]
+                })
+        _last_health_check_results = results
+        logger.info(f"Strategic Health Check complete. Analysed {len(results)} modules.")
     except Exception as e:
-        logger.exception(f"Automated backtest failed: {e}")
+        logger.exception("Health check failed")
+    finally:
+        is_health_checking = False
+
+def automated_pipeline_run():
+    logger.info("Triggering automated pipeline run via APScheduler...")
+    # Safe to call since APScheduler runs this synchronously but we can wrap it or just use create_task
+    asyncio.create_task(execute_pipeline_core(is_auto=True))
+async def refresh_spy_gap():
+    global _cached_spy_gap
+    logger.info("Refreshing cached SPY gap...")
+    _cached_spy_gap = await run_in_threadpool(get_spy_gap)
+    logger.info(f"Cached SPY gap updated: {_cached_spy_gap:+.2f}%")
+
+async def automated_backtest_run():
+    # Refresh gap also during backtest runs
+    await refresh_spy_gap()
+    await execute_health_check_core(lookback_days=90)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -178,6 +204,9 @@ async def lifespan(app: FastAPI):
         automated_backtest_run,
         IntervalTrigger(days=3)
     )
+    
+    # Initial gap fetch
+    asyncio.create_task(refresh_spy_gap())
     
     scheduler.start()
     logger.info("APScheduler started (cron: Mon-Fri 7:00 AM EST, interval: every 3 days)")
@@ -211,6 +240,7 @@ def health():
         "status": "ok",
         "service": "insider-scanner",
         "last_run": _last_run,
+        "spy_gap": _cached_spy_gap
     }
 
 
@@ -324,47 +354,26 @@ def status():
 
 
 @app.post("/health-check")
-async def health_check(x_run_secret: str = Header(default="")):
+async def health_check(background_tasks: BackgroundTasks, lookback_days: int = 30, x_run_secret: str = Header(default="")):
     """
-    Triggers a 30-day 'Strategic Health Check' (backtest) for all modules.
-    Returns summary results for the UI.
+    Triggers a 30-day (or custom) 'Strategic Health Check' (backtest) in the background.
     """
     if RUN_SECRET and x_run_secret != RUN_SECRET:
         raise HTTPException(status_code=403, detail="Invalid or missing X-Run-Secret header")
 
-    logger.info("Strategic Health Check triggered via /health-check endpoint")
-    
-    end_date   = datetime.now().date()
-    start_date = end_date - timedelta(days=30)
-    start_str  = start_date.strftime("%Y-%m-%d")
-    end_str    = end_date.strftime("%Y-%m-%d")
-    
-    modules = ["Insider", "Technical_Under_5", "Technical_Under_10", "Technical_Under_20"]
-    results = []
+    if is_health_checking:
+        return {"ok": False, "message": "Health check is already running in the background"}
 
-    try:
-        from backtester import run_backtest
-        for module in modules:
-            logger.info(f"Health check running for: {module}")
-            # Offload blocking work to a threadpool
-            metrics = await run_in_threadpool(run_backtest, module, start_str, end_str)
-            
-            if metrics:
-                results.append({
-                    "module": module,
-                    "win_rate": metrics["win_rate"],
-                    "avg_return": metrics["average_return"],
-                    "total_return": metrics["total_return"],
-                    "trades": metrics["total_trades"]
-                })
+    background_tasks.add_task(execute_health_check_core, lookback_days)
+    return {"ok": True, "message": f"Strategic Health Check ({lookback_days} days) started in background"}
 
-        return JSONResponse({
-            "ok": True,
-            "period": f"{start_str} to {end_str}",
-            "results": results
-        })
 
-    except Exception as e:
-        logger.exception("Health check failed")
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/health-status")
+def get_health_status():
+    """Returns the current health check state, results, and the live log stream."""
+    return {
+        "is_running": is_health_checking,
+        "results": _last_health_check_results,
+        "logs": list(log_queue)
+    }
 

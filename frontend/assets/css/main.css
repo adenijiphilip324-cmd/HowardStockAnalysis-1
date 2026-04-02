@@ -271,6 +271,50 @@ tbody tr:hover {
   word-wrap: break-word;
 }
 .log-cursor {
-  animation: pulse 1s infinite alternate;
-  color: #56d364;
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: #56d364;
+  margin-left: 4px;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Selector Group for Health Check */
+.selector-group {
+  display: flex;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 4px;
+  gap: 4px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+
+.selector-btn {
+  flex: 1;
+  padding: 8px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.selector-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.selector-btn.active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }

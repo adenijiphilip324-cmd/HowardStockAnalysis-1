@@ -8,13 +8,13 @@ import os
 
 # Variant 1: earnings season only (Feb, May, Aug, Nov)
 #   ATR >= 3.5%, volume $30M-$100M
-#   SL = 50% ATR, TP = 100% ATR
+#   SL = 50% ATR, TP = 150% ATR from prev close (Chapter 25)
 EARNINGS_MONTHS = {2, 5, 8, 11}
 V1_ATR_MIN = float(os.getenv("V1_ATR_MIN") or "3.5")
 V1_VOL_MIN_M = float(os.getenv("V1_VOL_MIN_M") or "30")    # $30M
 V1_VOL_MAX_M = float(os.getenv("V1_VOL_MAX_M") or "100")   # $100M
 
-# Variant 2: year-round
+# Variant 2: year-round (avoid during earnings months per Chapter 28)
 #   ATR 7%-20%, volume $30M-$10B
 #   SL = 150% ATR, TP = None (hold to close)
 V2_ATR_MIN = float(os.getenv("V2_ATR_MIN") or "7.0")
@@ -74,27 +74,35 @@ def count_same_day_insiders(trades: list[dict]) -> dict[str, int]:
     return result
 
 
-def determine_variant(atr_pct: float, dollar_volume_m: float) -> str | None:
+def determine_variant(atr_pct: float, dollar_volume_m: float, spy_gap: float = 0.0) -> str | None:
     """
-    Returns 'V1', 'V2', or None if the trade doesn't qualify for either variant.
-    Variant 1 takes priority during earnings season.
+    Returns 'V1', 'V2', or None based on WSV Mastery rules:
+    - V1: Earnings months only, ATR >= 3.5%, Vol $30-100M.
+    - V2: Non-earnings months, ATR 7-20%, Vol $30M-10B, SPY Gap <= 0.5%.
     """
     in_earnings = is_earnings_season()
-
+    
+    # 1. Variant 1 (Chapter 1 & 28)
     v1_ok = (
-        atr_pct >= V1_ATR_MIN
+        in_earnings
+        and atr_pct >= V1_ATR_MIN
         and V1_VOL_MIN_M <= dollar_volume_m <= V1_VOL_MAX_M
-        and in_earnings
     )
-    v2_ok = (
-        V2_ATR_MIN <= atr_pct <= V2_ATR_MAX
-        and V2_VOL_MIN_M <= dollar_volume_m <= V2_VOL_MAX_M
-    )
-
     if v1_ok:
         return "V1"
+
+    # 2. Variant 2 (Chapter 1, 26 & 28)
+    # Book says avoid V2 during earnings season (Chapter 28)
+    # Also skip if SPY gap > 0.5% (Chapter 26)
+    v2_ok = (
+        not in_earnings
+        and V2_ATR_MIN <= atr_pct <= V2_ATR_MAX
+        and V2_VOL_MIN_M <= dollar_volume_m <= V2_VOL_MAX_M
+        and abs(spy_gap) <= SPY_GAP_THRESHOLD
+    )
     if v2_ok:
         return "V2"
+
     return None
 
 
@@ -120,9 +128,9 @@ def score_trade(
     last_close = market["last_close"]
 
     # ── Determine which variant applies ─────────────────────────────────────
-    variant = determine_variant(atr_pct, dollar_volume_m)
+    variant = determine_variant(atr_pct, dollar_volume_m, spy_gap_pct)
     if variant is None:
-        logger.debug(f"{trade['ticker']} doesn't qualify for V1 or V2 — skipping")
+        logger.debug(f"{trade['ticker']} doesn't qualify for WSV V1 or V2 — skipping")
         return None
 
     # ── 1. Insider Strength (0-25) ───────────────────────────────────────────
@@ -217,15 +225,18 @@ def score_trade(
         rating = "Weak"
 
     # ── SL / TP based on variant ─────────────────────────────────────────────
+    # Standard Mastery SL/TP targets using ATR
     atr_dollar = last_close * (atr_pct / 100)
-    entry = last_close  # buy at open next day; use close as estimate
+    entry = last_close  # buy at open next day; use close as estimate for plan
 
     if variant == "V1":
+        # SL = 50% ATR. TP = 150% ATR from PREV CLOSE (Chapter 25)
         stop_loss = round(entry - 0.5 * atr_dollar, 2)
-        take_profit = round(entry + 1.0 * atr_dollar, 2)
+        take_profit = round(last_close + 1.5 * atr_dollar, 2)
     else:  # V2
+        # SL = 150% ATR. TP = None (Hold to Close / 3:59 PM)
         stop_loss = round(entry - 1.5 * atr_dollar, 2)
-        take_profit = None  # hold to close
+        take_profit = None 
 
     # ── Human-readable rationale ─────────────────────────────────────────────
     reasons = []

@@ -6,6 +6,10 @@
         <p style="color: var(--text-muted); margin-top: 8px;">Automated MGPR Technical & Insider Tracker</p>
       </div>
       <div style="display: flex; align-items: center; gap: 16px;">
+        <div v-if="serverStatus === 'online'" class="status-badge" :style="{ background: Math.abs(spyGap) > 0.5 ? 'var(--danger)' : 'rgba(255,255,255,0.1)' }">
+          SPY: {{ spyGap > 0 ? '+' : '' }}{{ spyGap.toFixed(2) }}% 
+          <span v-if="Math.abs(spyGap) > 0.5" style="margin-left: 4px;">⚠️ High Volatility</span>
+        </div>
         <span v-if="serverStatus === 'online'" class="status-badge status-online">API Online</span>
         <span v-else class="status-badge status-offline">API Offline</span>
         <button class="btn" style="padding: 6px 14px; font-size: 13px; background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);" @click="openSettings">
@@ -49,14 +53,27 @@
             <span v-else>🚀 Trigger Full Pipeline Now</span>
           </button>
 
-          <div v-if="isRunning" class="live-console">
+          <div v-if="isRunning || isHealthChecking" class="live-console">
             <div v-for="(log, idx) in liveLogs" :key="idx" class="log-line">>> {{ log }}</div>
             <div class="log-cursor">_</div>
           </div>
 
+          <div style="margin-top: 16px; margin-bottom: 8px;">
+            <label style="font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+              History Lookback Window
+            </label>
+            <div class="selector-group">
+              <button v-for="d in [7, 14, 30, 60, 90]" :key="d" 
+                      class="selector-btn" :class="{'active': lookbackDays === d}"
+                      @click="lookbackDays = d">
+                {{ d }}d
+              </button>
+            </div>
+          </div>
+
           <button @click="triggerHealthCheck" :disabled="isRunning || isHealthChecking || serverStatus === 'offline'" class="btn btn-secondary" :class="{'btn-pulse': isHealthChecking}">
-            <span v-if="isHealthChecking">Analyzing Strategy... (1-2 mins)</span>
-            <span v-else>🔍 Run 30-Day Strategic Health Check</span>
+            <span v-if="isHealthChecking">Analyzing {{ lookbackDays }} Days... (1-2 mins)</span>
+            <span v-else>🔍 Run {{ lookbackDays }}-Day Strategic Health Check</span>
           </button>
         </div>
       </div>
@@ -116,11 +133,15 @@
           <tbody>
             <tr v-for="(s, index) in recentSignals" :key="s.ticker + index">
               <td style="font-weight: 600; color: #fff;">{{ s.ticker }}</td>
-              <td>{{ s.variant }}</td>
+              <td>
+                <span class="status-badge" :style="{ background: s.variant === 'V1' ? 'rgba(52, 199, 89, 0.2)' : 'rgba(0, 122, 255, 0.2)', color: s.variant === 'V1' ? '#34c759' : '#007aff', border: '1px solid currentColor', fontSize: '11px', padding: '2px 8px' }">
+                  {{ s.variant }}
+                </span>
+              </td>
               <td :class="s.score >= 80 ? 'score-high' : (s.score >= 60 ? 'score-med' : 'score-low')">{{ s.score }}/100</td>
               <td>${{ Number(s.entry).toFixed(2) }}</td>
               <td>${{ Number(s.stop).toFixed(2) }}</td>
-              <td>{{ s.take_profit ? '$' + Number(s.take_profit).toFixed(2) : 'Hold' }}</td>
+              <td>{{ s.take_profit ? '$' + Number(s.take_profit).toFixed(2) : 'Hold to Close' }}</td>
               <td style="font-size: 13px; color: var(--text-muted);">{{ s.rationale }}</td>
             </tr>
           </tbody>
@@ -179,10 +200,12 @@ const lastRun = ref(null)
 const isRunning = ref(false)
 const liveLogs = ref([])
 const isHealthChecking = ref(false)
+const lookbackDays = ref(30)
 const recentSignals = ref([])
 const healthCheckResults = ref([])
 const healthCheckPeriod = ref('')
 const historyData = ref([])
+const spyGap = ref(0.0)
 
 // Settings modal state
 const showSettings = ref(false)
@@ -212,6 +235,7 @@ const checkStatus = async () => {
       serverStatus.value = 'online'
       const data = await res.json()
       lastRun.value = data.last_run
+      spyGap.value = data.spy_gap || 0.0
     } else {
       serverStatus.value = 'offline'
     }
@@ -281,28 +305,55 @@ const triggerRun = async () => {
   }
 }
 
+const pollHealthStatus = async () => {
+  if (!isHealthChecking.value) return;
+  try {
+    const res = await fetch(`${API_BASE}/health-status`)
+    if (res.ok) {
+      const data = await res.json()
+      liveLogs.value = data.logs || []
+      
+      if (!data.is_running && liveLogs.value.length > 0) {
+        // Just finished!
+        isHealthChecking.value = false
+        healthCheckResults.value = data.results || []
+        setTimeout(checkStatus, 1000)
+      } else if (data.is_running) {
+        // Keep polling
+        setTimeout(pollHealthStatus, 1000)
+      }
+    }
+  } catch (err) {
+    console.error("Health status poll failed:", err)
+    setTimeout(pollHealthStatus, 2000)
+  }
+}
+
 const triggerHealthCheck = async () => {
-  if (!confirm("Run 30-day strategy health check? (Takes 1-2 mins)")) return
+  const confirmMsg = `Run ${lookbackDays.value}-day strategy health check? The terminal will show progress.`
+  if (!confirm(confirmMsg)) return
+  
   isHealthChecking.value = true
   healthCheckResults.value = []
+  liveLogs.value = []
+
   try {
-    const res = await fetch(`${API_BASE}/health-check`, {
+    // Send lookback_days as query param
+    const res = await fetch(`${API_BASE}/health-check?lookback_days=${lookbackDays.value}`, {
       method: 'POST',
       headers: { 'x-run-secret': RUN_SECRET }
     })
     if (res.ok) {
-      const data = await res.json()
-      healthCheckResults.value = data.results || []
-      healthCheckPeriod.value = data.period
+      pollHealthStatus()
     } else {
       const errData = await res.json()
       console.error("Health check error:", errData.detail)
       alert("Health check failed. Check console.")
+      isHealthChecking.value = false
     }
   } catch (err) {
     console.error("Network error:", err)
     alert("Network error during health check.")
-  } finally {
     isHealthChecking.value = false
   }
 }
