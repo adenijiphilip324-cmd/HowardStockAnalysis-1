@@ -3,7 +3,7 @@
   "services": {
     "backend": {
       "source": {
-        "root": "backend"
+        "root": "."
       },
       "build": {
         "builder": "DOCKERFILE",
@@ -13,8 +13,7 @@
         "startCommand": "uvicorn server:app --host 0.0.0.0 --port $PORT",
         "healthcheckPath": "/",
         "healthcheckTimeout": 300,
-        "restartPolicyType": "ON_FAILURE",
-        "numReplicas": 1
+        "restartPolicyType": "ON_FAILURE"
       }
     },
     "frontend": {
