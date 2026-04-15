@@ -349,9 +349,9 @@ def push_backtest_result(metrics: dict) -> str:
         "Date Range Start": metrics["date_range_start"],
         "Date Range End":   metrics["date_range_end"],
         "Total Trades": int(metrics["total_trades"]),
-        "Win Rate":     float(metrics["win_rate"]),
-        "Average Return": float(metrics["average_return"]),
-        "Total Return": float(metrics["total_return"]),
+        "% Win Rate":     float(metrics["win_rate"]) / 100.0,
+        "Average Return": float(metrics["average_return"]) / 100.0,
+        "Total Return": float(metrics["total_return"]) / 100.0,
     }
 
     # Optional fields — only included if present
@@ -359,12 +359,18 @@ def push_backtest_result(metrics: dict) -> str:
         "sharpe_ratio":       "Sharpe Ratio",
         "max_drawdown":       "Max Drawdown",
         "profit_factor":      "Profit Factor",
-        "random_control_win": "Random Control Win",
+        "random_control_win": "% Random Control Win",
         "edge_vs_random":     "Edge Vs Random",
     }
+    percent_cols = ["% Win Rate", "Average Return", "Total Return", "% Random Control Win", "Max Drawdown", "Edge Vs Random"]
+
     for key, col in optional_floats.items():
         if metrics.get(key) is not None:
-            fields[col] = float(metrics[key])
+            val = float(metrics[key])
+            if col in percent_cols:
+                fields[col] = val / 100.0
+            else:
+                fields[col] = val
 
     optional_strings = {
         "edge_metrics":           "Edge Metrics",
