@@ -239,7 +239,7 @@ def compute_metrics(results: list[dict], module: str, start: str, end: str) -> d
     ]
 
     return {
-        "test_name":        f"{module} Backtest {start} → {end}",
+        "test_name":        f"{module} Backtest {start} -> {end}",
         "module":           module,
         "date_range_start": start,
         "date_range_end":   end,
