@@ -402,10 +402,10 @@ def get_run_status():
 
 @app.get("/history")
 def get_run_history():
-    """Returns the last 10 historical pipeline runs."""
+    """Returns all historical pipeline runs (sorted by newest first)."""
     hist = load_history()
-    # Return last 10 sorted by newest first
-    return list(reversed(hist))[:10]
+    # Return all history sorted by newest first
+    return list(reversed(hist))
 
 
 @app.get("/status")
