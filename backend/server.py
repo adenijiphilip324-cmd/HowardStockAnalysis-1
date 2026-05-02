@@ -173,10 +173,12 @@ async def execute_health_check_core(lookback_days: int = 30):
     finally:
         is_health_checking = False
 
-def automated_pipeline_run():
+async def automated_pipeline_run():
     logger.info("Triggering automated pipeline run via APScheduler...")
-    # Safe to call since APScheduler runs this synchronously but we can wrap it or just use create_task
-    asyncio.create_task(execute_pipeline_core(is_auto=True))
+    await execute_pipeline_core(is_auto=True)
+    logger.info("Automated pipeline complete. Triggering follow-up 7-day health check...")
+    await execute_health_check_core(lookback_days=7)
+
 async def refresh_spy_gap():
     global _cached_spy_gap
     try:
@@ -205,6 +207,8 @@ async def lifespan(app: FastAPI):
     
     try:
         # Schedule the job to run every Monday-Friday at 7:00 AM EST (New York)
+        # This automatically runs the daily scraper pipeline, then triggers a
+        # follow-up 7-day health check once the pipeline completes.
         scheduler.add_job(
             automated_pipeline_run, 
             CronTrigger(day_of_week='mon-fri', hour=7, minute=0, timezone='America/New_York'),
@@ -213,7 +217,8 @@ async def lifespan(app: FastAPI):
         )
         logger.info("INIT: Scheduled daily pipeline for Mon-Fri 7:00 AM EST")
         
-        # Schedule strategy health-check backtests every 3 days
+        # Schedule strategy health-check backtests every 3 days as a longer-term
+        # analytics task in addition to the daily 7-day follow-up run.
         scheduler.add_job(
             automated_backtest_run,
             IntervalTrigger(days=3),
@@ -261,11 +266,13 @@ import dotenv
 @app.get("/")
 def health():
     # Simplest possible health check to appease Railway
-    # We remove internal logs from here to keep it ultra-lite
+    # Includes last-run metadata and cached SPY gap for the dashboard.
     return {
         "status": "ok",
         "service": "insider-scanner",
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "last_run": _last_run,
+        "spy_gap": _cached_spy_gap,
     }
 
 @app.get("/health")
