@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+DRY_RUN = bool(os.getenv("DRY_RUN"))
+
 AIRTABLE_TOKEN   = os.getenv("AIRTABLE_TOKEN")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 
@@ -46,6 +48,11 @@ HEADERS  = {
 
 def _post(table: str, fields: dict) -> dict:
     """POST a single record to an Airtable table. Returns the record dict."""
+    if DRY_RUN:
+        logger.info(f"DRY_RUN enabled — skipping Airtable push to {table} (fields preview: {list(fields.keys())})")
+        # Return a mock record id for downstream compatibility
+        return {"id": "recDRYRUN", "fields": fields}
+
     url = f"{BASE_URL}/{requests.utils.quote(table, safe='')}"
     resp = requests.post(url, headers=HEADERS, json={"fields": fields}, timeout=15)
     if resp.status_code not in (200, 201):

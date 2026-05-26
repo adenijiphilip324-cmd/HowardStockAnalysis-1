@@ -33,13 +33,94 @@ def get_market_data(ticker: str) -> dict | None:
       - dollar_volume_m  : last day's dollar volume in $M
       - high_52w         : 52-week high
     """
-    if POLYGON_API_KEY:
-        result = _get_from_polygon(ticker)
-        if result:
-            return result
-        logger.warning(f"Polygon failed for {ticker}, trying yfinance fallback...")
+    # Generate symbol variants based on possible TradingView exchange prefixes
+    # and common Yahoo/Polygon suffixes. We return variants ordered by
+    # best-guess for the exchange first (so the first successful hit is used).
+    def _generate_variants(raw: str) -> list[str]:
+        raw = raw.strip()
+        # If caller already provided a dotted suffix (e.g. ORE.TO) or a full
+        # TradingView format (TSX:ORE), normalize but keep as-is first.
+        if ':' in raw:
+            exch, base = raw.split(':', 1)
+            exch = exch.upper()
+            base = base.upper()
+        else:
+            exch = None
+            base = raw.upper()
 
-    return _get_from_yfinance(ticker)
+        # Suffix candidates in rough preference order
+        common_suffixes = ["", ".TO", ".V", ".CN", ".NS", ".L", ".AX", ".DE"]
+
+        # Exchange-specific ordering
+        if exch in ("TSX", "TSE"):
+            prefs = ["", ".TO", ".CN", ".V"]
+        elif exch in ("TSXV", "TSV", "V"):
+            prefs = ["", ".V", ".TO", ".CN"]
+        elif exch in ("CSE", "CVE"):
+            prefs = ["", ".V", ".TO"]
+        elif exch in ("NYSE", "NASDAQ", "AMEX") or exch is None and len(base) <= 5:
+            # US tickers typically work without suffix
+            prefs = ["", ".TO", ".V"]
+        elif exch in ("LON", "XLON"):
+            prefs = ["", ".L"]
+        elif exch in ("FRA", "XETR"):
+            prefs = ["", ".DE"]
+        elif exch in ("ASX",):
+            prefs = ["", ".AX"]
+        else:
+            prefs = common_suffixes
+
+        variants = []
+        # If raw already contains a dot-suffix, prefer that exact string first
+        if '.' in raw and raw.upper() not in variants:
+            variants.append(raw.upper())
+
+        for sfx in prefs:
+            cand = f"{base}{sfx}"
+            if cand not in variants:
+                variants.append(cand)
+
+        # Deduplicate and return
+        return variants
+
+    variants = _generate_variants(ticker)
+    logger.debug(f"Generated market-data variants for {ticker}: {variants}")
+
+    # 1) Try Polygon for each variant (if available)
+    if POLYGON_API_KEY:
+        for v in variants:
+            try:
+                logger.debug(f"Trying Polygon for variant: {v}")
+                res = _get_from_polygon(v)
+                if res:
+                    res["ticker"] = v
+                    logger.info(f"Polygon hit for {ticker} -> {v}")
+                    return res
+            except Exception as e:
+                logger.debug(f"Polygon variant {v} failed: {e}")
+        logger.warning(f"Polygon failed for variants of {ticker}, trying yfinance fallback...")
+
+    # 2) Try yfinance for each variant with a small retry loop
+    for v in variants:
+        attempts = 0
+        while attempts < 3:
+            try:
+                logger.debug(f"Trying yfinance for variant: {v} (attempt {attempts+1})")
+                res = _get_from_yfinance(v)
+                if res:
+                    res["ticker"] = v
+                    logger.info(f"yfinance hit for {ticker} -> {v}")
+                    return res
+                # if None, break retry loop for this variant (likely no data)
+                break
+            except Exception as e:
+                attempts += 1
+                wait = 1 * (2 ** attempts)
+                logger.warning(f"yfinance attempt {attempts} failed for {v}: {e} — retrying in {wait}s")
+                time.sleep(wait)
+
+    # Nothing found
+    return None
 
 
 def _get_from_polygon(ticker: str) -> dict | None:

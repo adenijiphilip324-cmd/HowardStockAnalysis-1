@@ -105,31 +105,62 @@ def _try_html() -> list[dict]:
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
-    table = soup.find("table", {"class": "tinytable"})
-    if not table:
+    # Find a table that looks like the OpenInsider screener table by matching header names
+    tables = soup.find_all("table")
+    trades = []
+    target_table = None
+    header_map = None
+
+    for table in tables:
+        header = table.find("tr")
+        if not header:
+            continue
+        cols = [th.get_text(strip=True).lower() for th in header.find_all(["th", "td"])]
+        # Look for key headers present in OpenInsider tables
+        if any(h in " ".join(cols) for h in ("trade date", "ticker", "insider name")):
+            target_table = table
+            header_map = {name: idx for idx, name in enumerate(cols)}
+            break
+
+    if not target_table or not header_map:
         logger.warning("Could not find insider trades table on OpenInsider")
         return []
 
-    trades = []
-    rows = table.find_all("tr")[1:]  # skip header row
-
+    rows = target_table.find_all("tr")[1:]
     for row in rows:
-        cells = row.find_all("td")
-        if len(cells) < 16:
+        cells = [c.get_text(strip=True) for c in row.find_all("td")]
+        if len(cells) < 5:
             continue
         try:
-            trade_type = cells[7].get_text(strip=True)
-            if trade_type != "P - Purchase":
+            # Determine trade type column (try several common names)
+            trade_type = None
+            for key in ("trade type", "type"):
+                if key in header_map:
+                    trade_type = cells[header_map[key]]
+                    break
+            # If not found, try to infer from nearby columns
+            if not trade_type and len(cells) > 7:
+                trade_type = cells[7]
+
+            if not trade_type or "purchase" not in trade_type.lower() and "p -" not in trade_type.lower():
                 continue
 
-            ticker       = cells[3].get_text(strip=True)
-            company      = cells[4].get_text(strip=True)
-            insider_name = cells[5].get_text(strip=True)
-            title        = cells[6].get_text(strip=True)
-            trade_date   = _parse_date(cells[2].get_text(strip=True))
-            price        = _parse_value(cells[8].get_text(strip=True))
-            qty          = _parse_value(cells[9].get_text(strip=True))
-            value        = _parse_value(cells[12].get_text(strip=True))
+            def get_cell(name_candidates, default=""):
+                for n in name_candidates:
+                    if n in header_map:
+                        idx = header_map[n]
+                        if idx < len(cells):
+                            return cells[idx]
+                return default
+
+            trade_date = _parse_date(get_cell(["trade date", "date"]))
+            ticker = get_cell(["ticker", "symbol"]).upper()
+            company = get_cell(["company name", "company"]) or ""
+            insider_name = get_cell(["insider name", "owner"]) or ""
+            title = get_cell(["title"]) or ""
+            price = _parse_value(get_cell(["price"]))
+            qty = _parse_value(get_cell(["qty", "shares"]))
+            value = _parse_value(get_cell(["value"]))
 
             trades.append({
                 "ticker":       ticker,
@@ -141,7 +172,7 @@ def _try_html() -> list[dict]:
                 "price":        price,
                 "value":        value if value else (price * qty),
             })
-        except (ValueError, IndexError) as e:
+        except Exception as e:
             logger.debug(f"Skipped malformed row: {e}")
 
     logger.info(f"Found {len(trades)} insider purchases (HTML)")
