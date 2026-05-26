@@ -38,7 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Only push signals above this score to Airtable / alerts
-MIN_SCORE_FOR_ALERT = float(os.getenv("MIN_SCORE_FOR_ALERT") or "85")
+MIN_SCORE_FOR_ALERT = float(os.getenv("MIN_SCORE_FOR_ALERT") or "80")
 
 
 def run():

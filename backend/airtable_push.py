@@ -35,7 +35,7 @@ TABLE_BACKTEST  = os.getenv("AIRTABLE_TABLE_BACKTEST", "Historical/Backtest")
 
 # Score thresholds for different tables
 MIN_SCORE_FOR_RAW      = 70   # Raw Insider Data (all scraped trades)
-MIN_QUALIFY_SCORE      = 85   # Filtered/Qualified Insider List (high-quality only)
+MIN_QUALIFY_SCORE      = 80   # Filtered/Qualified Insider List (high-quality only)
 
 BASE_URL = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
 HEADERS  = {
