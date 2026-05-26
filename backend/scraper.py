@@ -27,17 +27,9 @@ HEADERS_HTTP = {
     )
 }
 
-# CSV export: last 3 days, purchases only, dollar volume >= $10M
-OPENINSIDER_CSV_URL = (
-    "http://openinsider.com/screener?"
-    "s=&o=&pl=&ph=&ll=&lh=&fd=3&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&"
-    "xp=1&vl=10&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&"
-    "grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&"
-    "sortcol=0&cnt=100&action=1&"
-    "type=csv"  # request CSV
-)
-
 # HTML fallback: same parameters
+OPENINSIDER_SCREENER_URL = "http://openinsider.com/screener"
+
 OPENINSIDER_HTML_URL = (
     "http://openinsider.com/screener?"
     "s=&o=&pl=&ph=&ll=&lh=&fd=3&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&"
@@ -45,6 +37,39 @@ OPENINSIDER_HTML_URL = (
     "grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&"
     "sortcol=0&cnt=100&action=1"
 )
+
+
+def _build_openinsider_payload() -> dict[str, str]:
+    """Create a default OpenInsider screener payload from the live form."""
+    resp = requests.get(OPENINSIDER_HTML_URL, headers=HEADERS_HTTP, timeout=60)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    form = soup.find("form", action="/screener")
+    if not form:
+        raise ValueError("OpenInsider form not found")
+
+    payload: dict[str, str] = {}
+    for inp in form.find_all("input"):
+        name = inp.get("name")
+        if not name:
+            continue
+        typ = inp.get("type", "text")
+        if typ == "checkbox":
+            if inp.has_attr("checked") or inp.get("value"):
+                payload[name] = inp.get("value", "1")
+            continue
+        payload[name] = inp.get("value", "")
+
+    for sel in form.find_all("select"):
+        name = sel.get("name")
+        if not name:
+            continue
+        option = sel.find("option", selected=True) or sel.find("option")
+        payload[name] = option.get("value", "") if option else ""
+
+    payload.update({"action": "1", "page": "1", "cnt": "100", "xp": "1"})
+    return payload
 
 
 def _parse_value(s: str) -> float:
@@ -65,13 +90,13 @@ def _parse_date(s: str) -> date:
 def _try_csv() -> list[dict] | None:
     """Try fetching OpenInsider as CSV. Returns list or None on failure."""
     logger.info("Attempting OpenInsider CSV export...")
-    resp = requests.get(OPENINSIDER_CSV_URL, headers=HEADERS_HTTP, timeout=60)
+    payload = _build_openinsider_payload()
+    payload["type"] = "csv"
+    resp = requests.post(OPENINSIDER_SCREENER_URL, headers=HEADERS_HTTP, data=payload, timeout=60)
     resp.raise_for_status()
 
     content_type = resp.headers.get("Content-Type", "")
-    # OpenInsider may return HTML even for type=csv if it ignores the param
-    if "text/csv" not in content_type and not resp.text.strip().startswith("X"):
-        # Looks like HTML, not CSV
+    if "text/csv" not in content_type and not resp.text.strip().startswith("X"):  # maybe HTML
         logger.warning("CSV endpoint returned HTML — will try HTML scraper")
         return None
 
@@ -101,26 +126,30 @@ def _try_csv() -> list[dict] | None:
 def _try_html() -> list[dict]:
     """Scrape OpenInsider HTML table. Returns list (may be empty)."""
     logger.info("Fetching insider buys from OpenInsider (HTML)...")
-    resp = requests.get(OPENINSIDER_HTML_URL, headers=HEADERS_HTTP, timeout=60)
+    payload = _build_openinsider_payload()
+    resp = requests.post(OPENINSIDER_SCREENER_URL, headers=HEADERS_HTTP, data=payload, timeout=60)
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
-    # Find a table that looks like the OpenInsider screener table by matching header names
-    tables = soup.find_all("table")
     trades = []
-    target_table = None
+    target_table = soup.find("table", class_="tinytable")
     header_map = None
 
-    for table in tables:
-        header = table.find("tr")
-        if not header:
-            continue
-        cols = [th.get_text(strip=True).lower() for th in header.find_all(["th", "td"])]
-        # Look for key headers present in OpenInsider tables
-        if any(h in " ".join(cols) for h in ("trade date", "ticker", "insider name")):
-            target_table = table
-            header_map = {name: idx for idx, name in enumerate(cols)}
-            break
+    if target_table is not None:
+        header = target_table.find("tr")
+        cols = [th.get_text(strip=True).replace("\xa0", " ").lower() for th in header.find_all(["th", "td"])]
+        header_map = {name: idx for idx, name in enumerate(cols)}
+    else:
+        # Fallback: scan all tables when class-based selection fails
+        for table in soup.find_all("table"):
+            header = table.find("tr")
+            if not header:
+                continue
+            cols = [th.get_text(strip=True).replace("\xa0", " ").lower() for th in header.find_all(["th", "td"])]
+            if all(h in " ".join(cols) for h in ("trade date", "ticker", "insider name")):
+                target_table = table
+                header_map = {name: idx for idx, name in enumerate(cols)}
+                break
 
     if not target_table or not header_map:
         logger.warning("Could not find insider trades table on OpenInsider")
