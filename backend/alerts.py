@@ -97,7 +97,8 @@ def build_slack_message(signals: list[dict]) -> str:
         
         # Determine status/score
         if 'momentum_score' in s:
-            header = f"📡 *{s['ticker']}* — MGPR: {s['total_score']}/100"
+            rating_label = s.get("rating", "MGPR")
+            header = f"📡 *{s['ticker']}* — {rating_label}: {s['total_score']}/100"
             details = f"RSI: {s['rsi']:.1f} | ATR: {s.get('atr_pct', 'N/A')}%"
         else:
             header = f"👤 *{s['ticker']}* — Insider Score: {s['total_score']}/100"

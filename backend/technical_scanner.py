@@ -121,6 +121,15 @@ def calculate_mgpr(row: dict) -> dict:
         volume_score += 10
         
     total_score = trend_score + momentum_score + volatility_score + volume_score
+
+    if total_score >= 80:
+        rating = "Strong"
+    elif total_score >= 60:
+        rating = "Moderate"
+    elif total_score >= 40:
+        rating = "Neutral"
+    else:
+        rating = "Weak"
     
     # Dynamic Entry/SL/TP
     entry_price = close
@@ -139,6 +148,7 @@ def calculate_mgpr(row: dict) -> dict:
         "exchange": exchange,
         "company": row['description'],
         "total_score": total_score,
+        "rating": rating,
         "momentum_score": momentum_score,
         "trend_score": trend_score,
         "volatility_score": volatility_score,
