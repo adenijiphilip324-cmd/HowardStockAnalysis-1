@@ -105,6 +105,14 @@ def run():
 
     logger.info(f"Scored {len(signals)} qualifying signals")
 
+    # Normalize keys for downstream consumers (frontend, Zapier, Airtable)
+    for s in signals:
+        # Provide short aliases expected by various consumers
+        s.setdefault("score", s.get("total_score"))
+        s.setdefault("entry", s.get("entry_price"))
+        s.setdefault("stop", s.get("stop_loss"))
+        s.setdefault("take_profit", s.get("take_profit"))
+
     if not signals:
         msg = "No signals passed filters today"
         logger.info(msg)
@@ -151,6 +159,13 @@ def run():
     
     tech_signals = list(tech_map.values())
     logger.info(f"Generated {len(tech_signals)} unique Technical signals")
+
+    # Normalize technical signal keys for downstream consumers
+    for s in tech_signals:
+        s.setdefault("score", s.get("total_score"))
+        s.setdefault("entry", s.get("entry_price"))
+        s.setdefault("stop", s.get("stop_loss"))
+        s.setdefault("take_profit", s.get("take_profit"))
 
     # ── Step 8: Push Technical Signals to Airtable ─────────────
     if tech_signals:
