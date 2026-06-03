@@ -34,11 +34,15 @@ DISCLAIMER = (
 
 
 def format_display_score(value):
+    """Only cap scores at 99.9 if they're exactly 100 (or slightly above due to rounding)."""
     try:
         numeric = float(value)
     except (TypeError, ValueError):
         return value
-    return f"{min(99.9, numeric):.1f}"
+    # Only cap if >= 100, otherwise return as-is
+    if numeric >= 100:
+        return "99.9"
+    return str(numeric)
 
 
 def build_email_html(signals: list[dict]) -> str:
@@ -104,13 +108,6 @@ def build_slack_message(signals: list[dict]) -> str:
     for s in signals[:5]: # Only top 5 in Slack to avoid truncation
         tp = f"${s['take_profit']}" if s.get("take_profit") else "N/A"
         
-        def format_display_score(value):
-            try:
-                numeric = float(value)
-            except (TypeError, ValueError):
-                return value
-            return f"{min(99.9, numeric):.1f}"
-
         # Determine status/score
         if 'momentum_score' in s:
             rating_value = s.get('rating', s.get('total_score', 'MGPR'))
