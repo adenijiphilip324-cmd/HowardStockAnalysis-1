@@ -31,7 +31,7 @@ def run_test():
     assert result["rating"] == float(result["total_score"]), "rating should equal total_score"
     assert "rating_label" not in result, "technical scanner output should not include a rating label"
     assert result["macd_signal"] == "Bullish Cross", "expected bullish MACD label"
-    assert result["total_score"] == 100, "expected total score 100 for the sample row"
+    assert result["total_score"] == 90, "expected total score 90 for the sample row"
     assert result["entry_price"] == 10.0, "expected entry price to equal close"
     assert result["stop_loss"] < result["entry_price"], "stop loss must be below entry"
     assert result["take_profit"] > result["entry_price"], "take profit must be above entry"
