@@ -215,14 +215,17 @@ def score_trade(
     total = insider_strength_score + volatility_score + liquidity_score + timing_score
 
     # ── Rating label ─────────────────────────────────────────────────────────
+    # Numeric rating and human-readable label per RFQ Chapter 4
     if total >= 80:
-        rating = "Excellent"
+        rating_label = "Excellent"
     elif total >= 60:
-        rating = "Good"
+        rating_label = "Good"
     elif total >= 40:
-        rating = "Fair"
+        rating_label = "Fair"
     else:
-        rating = "Weak"
+        rating_label = "Weak"
+
+    rating = float(round(total, 1))
 
     # ── SL / TP based on variant ─────────────────────────────────────────────
     # Standard Mastery SL/TP targets using ATR
@@ -282,6 +285,7 @@ def score_trade(
         "timing_score": timing_score,
         "total_score": round(total, 1),
         "rating": rating,
+        "rating_label": rating_label,
         "rationale": " | ".join(reasons),
         "same_day_insiders": same_day_count,
         "is_repeat_buy": is_repeat,

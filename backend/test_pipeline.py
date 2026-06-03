@@ -143,9 +143,10 @@ def run_sample_test(use_live_market_data: bool = False):
         )
         if result:
             tp = f"${result['take_profit']}" if result["take_profit"] else "Hold to close"
+            rating_display = result.get('rating_label', str(result.get('rating', 'N/A')))
             logger.info(
                 f"  ✅ {ticker:8s}  score={result['total_score']:5.1f}  "
-                f"rating={result['rating']:9s}  variant={result['variant']}  "
+                f"rating={rating_display:9s}  variant={result['variant']}  "
                 f"SL=${result['stop_loss']}  TP={tp}"
             )
             logger.info(f"     rationale: {result['rationale']}")

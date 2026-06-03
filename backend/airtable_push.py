@@ -231,10 +231,12 @@ def push_technical_signal(signal: dict) -> str:
     else:
         table = TABLE_TECH_20
 
+    mgpr_score = float(signal.get("rating", signal.get("total_score", 0)))
+
     fields = {
         "Ticker":           signal["ticker"],
         "Company Name":     signal["company"],
-        "MGPR score":       float(signal["total_score"]),
+        "MGPR score":       mgpr_score,
         "Exchange":         signal["exchange"],
         "Description":      signal["company"],
         "Scan Date":        signal["scan_date"],
@@ -250,6 +252,8 @@ def push_technical_signal(signal: dict) -> str:
         "Volume Score":     float(signal["volume_score"]),
         "MGPR Breakdown":   (f"Momentum: {signal['momentum_score']} | Trend: {signal['trend_score']} | "
                              f"Volatility: {signal['volatility_score']} | Volume: {signal['volume_score']}"),
+        "52w High":         float(signal.get("high_52w", 0)) if signal.get("high_52w") is not None else None,
+        "52w Low":          float(signal.get("low_52w", 0)) if signal.get("low_52w") is not None else None,
         "Alert Enabled":    True
     }
 
@@ -392,12 +396,15 @@ def push_backtest_result(metrics: dict) -> str:
     sim_log = metrics.get("simulation_results", "")
     notes = metrics.get("notes", "")
     if sim_log:
+        # Prefer sending simulation log to a dedicated field if present in Airtable schema
+        fields["Simulation Results"] = sim_log
+        # Also mirror into Notes for backward compatibility
         if notes:
             fields["Notes"] = f"{notes}\n\n---\n{sim_log}"
         else:
             fields["Notes"] = sim_log
     elif notes:
-         fields["Notes"] = notes
+        fields["Notes"] = notes
 
     record = _post(TABLE_BACKTEST, fields)
     record_id = record.get("id", "unknown")

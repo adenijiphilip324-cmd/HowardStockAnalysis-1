@@ -62,10 +62,11 @@ def get_technical_signals(price_threshold: float = 20.0) -> list[dict]:
 def calculate_mgpr(row: dict) -> dict:
     """
     Calculate MGPR score (0-100) based on technical indicators.
-    Returns a dict with scores and metadata.
+    Returns a dict with numeric `rating` and a `rating_label` classification.
     """
-    ticker = row['ticker'].split(':')[-1]
-    raw_exchange = row['ticker'].split(':')[0]
+    ticker_value = str(row.get('ticker', ''))
+    ticker = ticker_value.split(':')[-1] if ticker_value else ''
+    raw_exchange = ticker_value.split(':')[0] if ':' in ticker_value else ''
     # Map to Airtable singleSelect: [TSX|TSXV|NYSE|NASDAQ|AMEX]
     if 'XTSX' in raw_exchange or 'NEO' in raw_exchange or 'AEO' in raw_exchange:
         exchange = 'TSX'
@@ -122,14 +123,7 @@ def calculate_mgpr(row: dict) -> dict:
         
     total_score = trend_score + momentum_score + volatility_score + volume_score
 
-    if total_score >= 80:
-        rating = "Strong"
-    elif total_score >= 60:
-        rating = "Moderate"
-    elif total_score >= 40:
-        rating = "Neutral"
-    else:
-        rating = "Weak"
+    rating = float(total_score)
     
     # Dynamic Entry/SL/TP
     entry_price = close
@@ -143,10 +137,16 @@ def calculate_mgpr(row: dict) -> dict:
     if momentum_score >= 20: rationale_parts.append(f"Optimal momentum (RSI {rsi:.1f}).")
     if volume_score >= 10: rationale_parts.append(f"Increased relative volume ({rel_vol:.1f}x).")
     
+    macd_signal_label = "Neutral"
+    if macd > macd_signal:
+        macd_signal_label = "Bullish Cross"
+    elif macd < macd_signal:
+        macd_signal_label = "Bearish Cross"
+
     return {
         "ticker": ticker,
         "exchange": exchange,
-        "company": row['description'],
+        "company": row.get('description', row.get('company', '')),
         "total_score": total_score,
         "rating": rating,
         "momentum_score": momentum_score,
@@ -158,7 +158,7 @@ def calculate_mgpr(row: dict) -> dict:
         "stop_loss": stop_loss,
         "take_profit": take_profit,
         "rsi": rsi,
-        "macd_signal": "Bullish Cross" if macd > macd_signal else "Neutral",
+        "macd_signal": macd_signal_label,
         "atr_pct": round(atr_pct, 2),
         "high_52w": row.get('high_52w', 0), # placeholder if not in row
         "low_52w": row.get('low_52w', 0),   # placeholder if not in row

@@ -39,7 +39,7 @@ def build_email_html(signals: list[dict]) -> str:
     for s in signals:
         tp = f"${s['take_profit']}" if s.get("take_profit") else "N/A"
         variant = s.get("variant", "Technical")
-        rating = s.get("rating", f"Score: {s['total_score']}")
+        rating = s.get("rating_label", f"Score: {s.get('rating', s.get('total_score'))}")
         
         rows += (
             f"<tr style='border-bottom:1px solid #eee;'>"
@@ -97,7 +97,7 @@ def build_slack_message(signals: list[dict]) -> str:
         
         # Determine status/score
         if 'momentum_score' in s:
-            rating_label = s.get("rating", "MGPR")
+            rating_label = s.get("rating_label", s.get('rating', 'MGPR'))
             header = f"📡 *{s['ticker']}* — {rating_label}: {s['total_score']}/100"
             details = f"RSI: {s['rsi']:.1f} | ATR: {s.get('atr_pct', 'N/A')}%"
         else:

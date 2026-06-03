@@ -1,0 +1,48 @@
+2026-05-26 09:31:24  INFO      ============================================================
+2026-05-26 09:31:24  INFO      INSIDER SCANNER STARTING
+2026-05-26 09:31:24  INFO      ============================================================
+2026-05-26 09:31:25  INFO      SPY Gap OK: 0.47%
+2026-05-26 09:31:25  INFO      Current SPY Gap: +0.47%
+2026-05-26 09:31:25  INFO      Attempting OpenInsider CSV export...
+2026-05-26 09:31:25  WARNING   CSV endpoint returned HTML — will try HTML scraper
+2026-05-26 09:31:25  INFO      Fetching insider buys from OpenInsider (HTML)...
+2026-05-26 09:31:25  INFO      Found 0 insider purchases (HTML)
+2026-05-26 09:31:25  INFO      No insider buys found today
+2026-05-26 09:31:25  INFO      Scraped 0 trades
+2026-05-26 09:31:25  INFO      Scored 0 qualifying signals
+2026-05-26 09:31:25  INFO      No signals passed filters today
+2026-05-26 09:31:25  WARNING   Airtable not configured — skipping push
+2026-05-26 09:31:25  INFO      No signals above 85.0 score threshold for alert
+2026-05-26 09:31:25  INFO      Starting Technical MGPR Scans ($5, $10, $20)...
+2026-05-26 09:31:25  INFO      Scanning TSX/TSXV for stocks under $5.0...
+2026-05-26 09:31:26  INFO      Scan result type: <class 'pandas.core.frame.DataFrame'> | Count: 595
+2026-05-26 09:31:26  INFO      Found 14 qualifying technical signals under $5.0
+2026-05-26 09:31:26  INFO      Scanning TSX/TSXV for stocks under $10.0...
+2026-05-26 09:31:26  INFO      Scan result type: <class 'pandas.core.frame.DataFrame'> | Count: 664
+2026-05-26 09:31:26  INFO      Found 11 qualifying technical signals under $10.0
+2026-05-26 09:31:26  INFO      Scanning TSX/TSXV for stocks under $20.0...
+2026-05-26 09:31:26  INFO      Scan result type: <class 'pandas.core.frame.DataFrame'> | Count: 743
+2026-05-26 09:31:26  INFO      Found 7 qualifying technical signals under $20.0
+2026-05-26 09:31:26  INFO      Generated 17 unique Technical signals
+2026-05-26 09:31:32  INFO      Pushed ORE → Technical Scans Under $5 CAD [reczYIgRVIstJDPT9]
+2026-05-26 09:31:33  INFO      Pushed GGD → Technical Scans Under $5 CAD [recjVhVWkqVbdlc3b]
+2026-05-26 09:31:34  INFO      Pushed RIO → Technical Scans Under $5 CAD [recoLHBEbXU0CEJl3]
+2026-05-26 09:31:34  INFO      Pushed TLG → Technical Scans Under $5 CAD [recPZNPpYFSsXdSiQ]
+2026-05-26 09:31:35  INFO      Pushed QNC → Technical Scans Under $5 CAD [recr9VboOE6g15b17]
+2026-05-26 09:31:36  INFO      Pushed ESI → Technical Scans Under $5 CAD [rec18o9t8REKxdB4o]
+2026-05-26 09:31:36  INFO      Pushed TAL → Technical Scans Under $5 CAD [recDsObQYdxHEHxNV]
+2026-05-26 09:31:37  INFO      Pushed CVVY → Technical Scans Under $5 CAD [recHfKqZQ3JjibhS3]
+2026-05-26 09:31:37  INFO      Pushed FFM → Technical Scans Under $5 CAD [recS1d4vYluL4NF6H]
+2026-05-26 09:31:38  INFO      Pushed SVRS → Technical Scans Under $5 CAD [recPOMPHnPG6hHVaH]
+2026-05-26 09:31:39  INFO      Pushed SM → Technical Scans Under $5 CAD [recUBd1D9DmZo3Gwt]
+2026-05-26 09:31:39  INFO      Pushed GGA → Technical Scans Under $5 CAD [recPsuKSX8xeo7RGk]
+2026-05-26 09:31:40  INFO      Pushed CUU → Technical Scans Under $5 CAD [recvYJz3iELVlD6xQ]
+2026-05-26 09:31:40  INFO      Pushed HMMC → Technical Scans Under $10 CAD [recBoVGksssd6f6mw]
+2026-05-26 09:31:41  INFO      Pushed ASCU → Technical Scans Under $10 CAD [recd3ydf462PjKepK]
+2026-05-26 09:31:42  INFO      Pushed FDY → Technical Scans Under $10 CAD [recICobYr2KDYwh1L]
+2026-05-26 09:31:42  INFO      Pushed MAU → Technical Scans Under $20 CAD [recdH7ttgykTsW83S]
+2026-05-26 09:31:42  INFO      Pushed 17 Technical signals to Airtable
+2026-05-26 09:31:42  INFO      Alert sent to Zapier → status 200
+2026-05-26 09:31:42  INFO      ============================================================
+2026-05-26 09:31:42  INFO      DONE — 0 Insider, 17 Tech signals
+2026-05-26 09:31:42  INFO      ============================================================

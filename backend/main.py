@@ -98,9 +98,10 @@ def run():
 
         if result:
             signals.append(result)
+            rating_display = result.get('rating_label', str(result.get('rating', 'N/A')))
             logger.info(
                 f"  {ticker:6s}  score={result['total_score']:5.1f}  "
-                f"rating={result['rating']:9s}  variant={result['variant']}"
+                f"rating={rating_display:9s}  variant={result['variant']}"
             )
 
     logger.info(f"Scored {len(signals)} qualifying signals")
