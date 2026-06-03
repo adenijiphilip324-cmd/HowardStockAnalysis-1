@@ -92,37 +92,37 @@ def calculate_mgpr(row: dict) -> dict:
     # ── 1. Trend Score (30 pts) ──────────────────────────────────────────
     trend_score = 0
     if close > ema20 > ema50:
-        trend_score += 15
+        trend_score += 14
     if macd > macd_signal:
-        trend_score += 15
+        trend_score += 13
         
-    # ── 2. Momentum Score (30 pts) ───────────────────────────────────────
+    # ── 2. Momentum Score (27 pts max) ───────────────────────────────────────
     # Tighten RSI sweet-spot to 55-70 for stronger signals
     momentum_score = 0
     if 55 <= rsi <= 70:
-        momentum_score += 20
+        momentum_score += 18
     elif rsi > 70:
-        momentum_score += 10  # slightly overbought but still positive
+        momentum_score += 9  # slightly overbought but still positive
 
     if ema20 > ema50:
-        momentum_score += 10
+        momentum_score += 9
         
-    # ── 3. Volatility Score (20 pts) ─────────────────────────────────────
+    # ── 3. Volatility Score (18 pts) ─────────────────────────────────────
     volatility_score = 0
     atr_pct = (atr / close * 100) if close > 0 else 0
     # Narrow the ideal ATR range to reduce false positives
     if 5 <= atr_pct <= 12:
-        volatility_score = 20
+        volatility_score = 18
     elif atr_pct > 12:
-        volatility_score = 10  # high volatility, higher risk
+        volatility_score = 9  # high volatility, higher risk
         
-    # ── 4. Volume Score (20 pts) ─────────────────────────────────────────
+    # ── 4. Volume Score (18 pts) ─────────────────────────────────────────
     volume_score = 0
     # Require stronger relative volume and larger dollar volume
     if rel_vol >= 1.5:
-        volume_score += 10
+        volume_score += 9
     if (volume * close) > 1000000:  # $1M
-        volume_score += 10
+        volume_score += 9
 
     total_score = trend_score + momentum_score + volatility_score + volume_score
 

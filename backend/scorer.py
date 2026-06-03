@@ -153,9 +153,9 @@ def score_trade(
     elif same_day_count == 2:
         strength = min(strength + 0.15, 1.0)
 
-    insider_strength_score = round(strength * 25, 1)
+    insider_strength_score = round(strength * 22.5, 1)
 
-    # ── 2. Volatility Match (0-25) ───────────────────────────────────────────
+    # ── 2. Volatility Match (0-22.5) ───────────────────────────────────────────
     if variant == "V1":
         # V1: want ATR >= 3.5% — more the better up to ~8%
         vol_score = min((atr_pct - V1_ATR_MIN) / 4.5, 1.0) if atr_pct >= V1_ATR_MIN else 0.4
@@ -168,9 +168,9 @@ def score_trade(
         else:
             vol_score = 0.3
 
-    volatility_score = round(vol_score * 25, 1)
+    volatility_score = round(vol_score * 22.5, 1)
 
-    # ── 3. Liquidity Score (0-25) ────────────────────────────────────────────
+    # ── 3. Liquidity Score (0-22.5) ────────────────────────────────────────────
     if variant == "V1":
         # Sweet spot $30M-$100M
         if V1_VOL_MIN_M <= dollar_volume_m <= V1_VOL_MAX_M:
@@ -185,9 +185,9 @@ def score_trade(
         else:
             liq_score = 0.2
 
-    liquidity_score = round(liq_score * 25, 1)
+    liquidity_score = round(liq_score * 22.5, 1)
 
-    # ── 4. Timing Score (0-25) ───────────────────────────────────────────────
+    # ── 4. Timing Score (0-22.5) ───────────────────────────────────────────────
     timing = 1.0
 
     # Earnings season bonus for V1
@@ -209,7 +209,7 @@ def score_trade(
     recency = max(1.0 - (days_ago / 5.0), 0.5)
     timing *= recency
 
-    timing_score = round(timing * 25, 1)
+    timing_score = round(timing * 22.5, 1)
 
     # ── Total score ──────────────────────────────────────────────────────────
     total = insider_strength_score + volatility_score + liquidity_score + timing_score
