@@ -33,13 +33,22 @@ DISCLAIMER = (
 )
 
 
+def format_display_score(value):
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return value
+    return f"{min(99.9, numeric):.1f}"
+
+
 def build_email_html(signals: list[dict]) -> str:
     """Build a clean, bulletproof HTML email table."""
     rows = ""
     for s in signals:
         tp = f"${s['take_profit']}" if s.get("take_profit") else "N/A"
         variant = s.get("variant", "Technical")
-        rating = s.get("rating_label", f"Score: {s.get('rating', s.get('total_score'))}")
+        rating_value = s.get('rating', s.get('total_score'))
+        rating = s.get("rating_label", f"Score: {format_display_score(rating_value)}")
         
         rows += (
             f"<tr style='border-bottom:1px solid #eee;'>"
@@ -95,13 +104,21 @@ def build_slack_message(signals: list[dict]) -> str:
     for s in signals[:5]: # Only top 5 in Slack to avoid truncation
         tp = f"${s['take_profit']}" if s.get("take_profit") else "N/A"
         
+        def format_display_score(value):
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                return value
+            return f"{min(99.9, numeric):.1f}"
+
         # Determine status/score
         if 'momentum_score' in s:
-            rating_label = s.get("rating_label", s.get('rating', 'MGPR'))
-            header = f"📡 *{s['ticker']}* — {rating_label}: {s['total_score']}/100"
+            rating_value = s.get('rating', s.get('total_score', 'MGPR'))
+            rating_label = s.get("rating_label", f"Score: {format_display_score(rating_value)}")
+            header = f"📡 *{s['ticker']}* — {rating_label}: {format_display_score(s.get('total_score', s.get('rating', 0)))}/100"
             details = f"RSI: {s['rsi']:.1f} | ATR: {s.get('atr_pct', 'N/A')}%"
         else:
-            header = f"👤 *{s['ticker']}* — Insider Score: {s['total_score']}/100"
+            header = f"👤 *{s['ticker']}* — Insider Score: {format_display_score(s.get('total_score', 0))}/100"
             details = f"Buy: ${s.get('total_value', 0):,.0f} | {s.get('insider_name', 'N/A')}"
 
         lines.append(f"\n{header}")
