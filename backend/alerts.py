@@ -33,13 +33,26 @@ DISCLAIMER = (
 )
 
 
+def format_display_score(value):
+    """Only cap scores at 99.9 if they're exactly 100 (or slightly above due to rounding)."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return value
+    # Only cap if >= 100, otherwise return as-is
+    if numeric >= 100:
+        return "99.9"
+    return str(numeric)
+
+
 def build_email_html(signals: list[dict]) -> str:
     """Build a clean, bulletproof HTML email table."""
     rows = ""
     for s in signals:
         tp = f"${s['take_profit']}" if s.get("take_profit") else "N/A"
         variant = s.get("variant", "Technical")
-        rating = s.get("rating", f"Score: {s['total_score']}")
+        rating_value = s.get('rating', s.get('total_score'))
+        rating = s.get("rating_label", f"Score: {format_display_score(rating_value)}")
         
         rows += (
             f"<tr style='border-bottom:1px solid #eee;'>"
@@ -97,10 +110,12 @@ def build_slack_message(signals: list[dict]) -> str:
         
         # Determine status/score
         if 'momentum_score' in s:
-            header = f"📡 *{s['ticker']}* — MGPR: {s['total_score']}/100"
+            rating_value = s.get('rating', s.get('total_score', 'MGPR'))
+            rating_label = s.get("rating_label", f"Score: {format_display_score(rating_value)}")
+            header = f"📡 *{s['ticker']}* — {rating_label}: {format_display_score(s.get('total_score', s.get('rating', 0)))}/100"
             details = f"RSI: {s['rsi']:.1f} | ATR: {s.get('atr_pct', 'N/A')}%"
         else:
-            header = f"👤 *{s['ticker']}* — Insider Score: {s['total_score']}/100"
+            header = f"👤 *{s['ticker']}* — Insider Score: {format_display_score(s.get('total_score', 0))}/100"
             details = f"Buy: ${s.get('total_value', 0):,.0f} | {s.get('insider_name', 'N/A')}"
 
         lines.append(f"\n{header}")

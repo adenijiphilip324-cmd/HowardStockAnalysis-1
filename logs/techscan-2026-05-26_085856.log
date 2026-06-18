@@ -1,0 +1,10 @@
+Starting technical scanner at Tue May 26 08:58:56 UTC 2026
+INFO:__main__:Scanning TSX/TSXV for stocks under $5.0...
+INFO:__main__:Scan result type: <class 'pandas.core.frame.DataFrame'> | Count: 595
+INFO:__main__:Found 16 qualifying technical signals under $5.0
+Ticker: ORE | Score: 89 | Price: 2.47
+Ticker: GGD | Score: 89 | Price: 3.38
+Ticker: RIO | Score: 89 | Price: 3.15
+Ticker: TLG | Score: 89 | Price: 1.97
+Ticker: QNC | Score: 89 | Price: 4.54
+Technical scanner finished at Tue May 26 08:58:57 UTC 2026

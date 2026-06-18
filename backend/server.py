@@ -378,7 +378,7 @@ def get_settings():
         
         # Define recommended defaults for missing or blank settings
         defaults = {
-            "MIN_SCORE_FOR_ALERT": "85",
+            "MIN_SCORE_FOR_ALERT": "80",
             "MIN_SCAN_SCORE": "50",
             "MIN_VOLUME_SHARES": "50000",
             "V1_ATR_MIN": "3.5",

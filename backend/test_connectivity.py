@@ -207,7 +207,7 @@ try:
     if result:
         print(f"  Ticker: {result['ticker']}")
         print(f"  Score: {result['total_score']}/100")
-        print(f"  Rating: {result['rating']}")
+        print(f"  Rating: {result.get('rating_label', result.get('rating'))}")
         print(f"  Variant: {result['variant']}")
         print(f"  Entry: ${result['entry_price']} | SL: ${result['stop_loss']} | TP: {result['take_profit']}")
         print(f"  Rationale: {result['rationale']}")

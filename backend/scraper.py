@@ -27,17 +27,9 @@ HEADERS_HTTP = {
     )
 }
 
-# CSV export: last 3 days, purchases only, dollar volume >= $10M
-OPENINSIDER_CSV_URL = (
-    "http://openinsider.com/screener?"
-    "s=&o=&pl=&ph=&ll=&lh=&fd=3&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&"
-    "xp=1&vl=10&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&"
-    "grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&"
-    "sortcol=0&cnt=100&action=1&"
-    "type=csv"  # request CSV
-)
-
 # HTML fallback: same parameters
+OPENINSIDER_SCREENER_URL = "http://openinsider.com/screener"
+
 OPENINSIDER_HTML_URL = (
     "http://openinsider.com/screener?"
     "s=&o=&pl=&ph=&ll=&lh=&fd=3&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&"
@@ -45,6 +37,39 @@ OPENINSIDER_HTML_URL = (
     "grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&"
     "sortcol=0&cnt=100&action=1"
 )
+
+
+def _build_openinsider_payload() -> dict[str, str]:
+    """Create a default OpenInsider screener payload from the live form."""
+    resp = requests.get(OPENINSIDER_HTML_URL, headers=HEADERS_HTTP, timeout=60)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    form = soup.find("form", action="/screener")
+    if not form:
+        raise ValueError("OpenInsider form not found")
+
+    payload: dict[str, str] = {}
+    for inp in form.find_all("input"):
+        name = inp.get("name")
+        if not name:
+            continue
+        typ = inp.get("type", "text")
+        if typ == "checkbox":
+            if inp.has_attr("checked") or inp.get("value"):
+                payload[name] = inp.get("value", "1")
+            continue
+        payload[name] = inp.get("value", "")
+
+    for sel in form.find_all("select"):
+        name = sel.get("name")
+        if not name:
+            continue
+        option = sel.find("option", selected=True) or sel.find("option")
+        payload[name] = option.get("value", "") if option else ""
+
+    payload.update({"action": "1", "page": "1", "cnt": "100", "xp": "1"})
+    return payload
 
 
 def _parse_value(s: str) -> float:
@@ -65,13 +90,13 @@ def _parse_date(s: str) -> date:
 def _try_csv() -> list[dict] | None:
     """Try fetching OpenInsider as CSV. Returns list or None on failure."""
     logger.info("Attempting OpenInsider CSV export...")
-    resp = requests.get(OPENINSIDER_CSV_URL, headers=HEADERS_HTTP, timeout=60)
+    payload = _build_openinsider_payload()
+    payload["type"] = "csv"
+    resp = requests.post(OPENINSIDER_SCREENER_URL, headers=HEADERS_HTTP, data=payload, timeout=60)
     resp.raise_for_status()
 
     content_type = resp.headers.get("Content-Type", "")
-    # OpenInsider may return HTML even for type=csv if it ignores the param
-    if "text/csv" not in content_type and not resp.text.strip().startswith("X"):
-        # Looks like HTML, not CSV
+    if "text/csv" not in content_type and not resp.text.strip().startswith("X"):  # maybe HTML
         logger.warning("CSV endpoint returned HTML — will try HTML scraper")
         return None
 
@@ -101,35 +126,70 @@ def _try_csv() -> list[dict] | None:
 def _try_html() -> list[dict]:
     """Scrape OpenInsider HTML table. Returns list (may be empty)."""
     logger.info("Fetching insider buys from OpenInsider (HTML)...")
-    resp = requests.get(OPENINSIDER_HTML_URL, headers=HEADERS_HTTP, timeout=60)
+    payload = _build_openinsider_payload()
+    resp = requests.post(OPENINSIDER_SCREENER_URL, headers=HEADERS_HTTP, data=payload, timeout=60)
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
-    table = soup.find("table", {"class": "tinytable"})
-    if not table:
+    trades = []
+    target_table = soup.find("table", class_="tinytable")
+    header_map = None
+
+    if target_table is not None:
+        header = target_table.find("tr")
+        cols = [th.get_text(strip=True).replace("\xa0", " ").lower() for th in header.find_all(["th", "td"])]
+        header_map = {name: idx for idx, name in enumerate(cols)}
+    else:
+        # Fallback: scan all tables when class-based selection fails
+        for table in soup.find_all("table"):
+            header = table.find("tr")
+            if not header:
+                continue
+            cols = [th.get_text(strip=True).replace("\xa0", " ").lower() for th in header.find_all(["th", "td"])]
+            if all(h in " ".join(cols) for h in ("trade date", "ticker", "insider name")):
+                target_table = table
+                header_map = {name: idx for idx, name in enumerate(cols)}
+                break
+
+    if not target_table or not header_map:
         logger.warning("Could not find insider trades table on OpenInsider")
         return []
 
-    trades = []
-    rows = table.find_all("tr")[1:]  # skip header row
-
+    rows = target_table.find_all("tr")[1:]
     for row in rows:
-        cells = row.find_all("td")
-        if len(cells) < 16:
+        cells = [c.get_text(strip=True) for c in row.find_all("td")]
+        if len(cells) < 5:
             continue
         try:
-            trade_type = cells[7].get_text(strip=True)
-            if trade_type != "P - Purchase":
+            # Determine trade type column (try several common names)
+            trade_type = None
+            for key in ("trade type", "type"):
+                if key in header_map:
+                    trade_type = cells[header_map[key]]
+                    break
+            # If not found, try to infer from nearby columns
+            if not trade_type and len(cells) > 7:
+                trade_type = cells[7]
+
+            if not trade_type or "purchase" not in trade_type.lower() and "p -" not in trade_type.lower():
                 continue
 
-            ticker       = cells[3].get_text(strip=True)
-            company      = cells[4].get_text(strip=True)
-            insider_name = cells[5].get_text(strip=True)
-            title        = cells[6].get_text(strip=True)
-            trade_date   = _parse_date(cells[2].get_text(strip=True))
-            price        = _parse_value(cells[8].get_text(strip=True))
-            qty          = _parse_value(cells[9].get_text(strip=True))
-            value        = _parse_value(cells[12].get_text(strip=True))
+            def get_cell(name_candidates, default=""):
+                for n in name_candidates:
+                    if n in header_map:
+                        idx = header_map[n]
+                        if idx < len(cells):
+                            return cells[idx]
+                return default
+
+            trade_date = _parse_date(get_cell(["trade date", "date"]))
+            ticker = get_cell(["ticker", "symbol"]).upper()
+            company = get_cell(["company name", "company"]) or ""
+            insider_name = get_cell(["insider name", "owner"]) or ""
+            title = get_cell(["title"]) or ""
+            price = _parse_value(get_cell(["price"]))
+            qty = _parse_value(get_cell(["qty", "shares"]))
+            value = _parse_value(get_cell(["value"]))
 
             trades.append({
                 "ticker":       ticker,
@@ -141,7 +201,7 @@ def _try_html() -> list[dict]:
                 "price":        price,
                 "value":        value if value else (price * qty),
             })
-        except (ValueError, IndexError) as e:
+        except Exception as e:
             logger.debug(f"Skipped malformed row: {e}")
 
     logger.info(f"Found {len(trades)} insider purchases (HTML)")

@@ -13,7 +13,7 @@ from tradingview_screener import Query, Column
 logger = logging.getLogger(__name__)
 
 # MGPR Scoring Thresholds
-MIN_SCAN_SCORE = float(os.getenv("MIN_SCAN_SCORE") or "85")   # Minimum score to be considered for Airtable (technical scans)
+MIN_SCAN_SCORE = float(os.getenv("MIN_SCAN_SCORE") or "80")   # Minimum score to be considered for Airtable (technical scans) — stricter threshold for quality signals
 MIN_VOLUME_SHARES = int(os.getenv("MIN_VOLUME_SHARES") or "50000")
 
 def get_technical_signals(price_threshold: float = 20.0) -> list[dict]:
@@ -62,10 +62,11 @@ def get_technical_signals(price_threshold: float = 20.0) -> list[dict]:
 def calculate_mgpr(row: dict) -> dict:
     """
     Calculate MGPR score (0-100) based on technical indicators.
-    Returns a dict with scores and metadata.
+    Returns a dict with numeric `rating` and a `rating_label` classification.
     """
-    ticker = row['ticker'].split(':')[-1]
-    raw_exchange = row['ticker'].split(':')[0]
+    ticker_value = str(row.get('ticker', ''))
+    ticker = ticker_value.split(':')[-1] if ticker_value else ''
+    raw_exchange = ticker_value.split(':')[0] if ':' in ticker_value else ''
     # Map to Airtable singleSelect: [TSX|TSXV|NYSE|NASDAQ|AMEX]
     if 'XTSX' in raw_exchange or 'NEO' in raw_exchange or 'AEO' in raw_exchange:
         exchange = 'TSX'
@@ -91,36 +92,41 @@ def calculate_mgpr(row: dict) -> dict:
     # ── 1. Trend Score (30 pts) ──────────────────────────────────────────
     trend_score = 0
     if close > ema20 > ema50:
-        trend_score += 15
+        trend_score += 14
     if macd > macd_signal:
-        trend_score += 15
+        trend_score += 13
         
-    # ── 2. Momentum Score (30 pts) ───────────────────────────────────────
+    # ── 2. Momentum Score (27 pts max) ───────────────────────────────────────
+    # Tighten RSI sweet-spot to 55-70 for stronger signals
     momentum_score = 0
-    if 50 <= rsi <= 75:
-        momentum_score += 20
-    elif rsi > 75:
-        momentum_score += 10  # slightly overbought but strong
-        
+    if 55 <= rsi <= 70:
+        momentum_score += 18
+    elif rsi > 70:
+        momentum_score += 9  # slightly overbought but still positive
+
     if ema20 > ema50:
-        momentum_score += 10
+        momentum_score += 9
         
-    # ── 3. Volatility Score (20 pts) ─────────────────────────────────────
+    # ── 3. Volatility Score (18 pts) ─────────────────────────────────────
     volatility_score = 0
     atr_pct = (atr / close * 100) if close > 0 else 0
-    if 4 <= atr_pct <= 15:
-        volatility_score = 20
-    elif atr_pct > 15:
-        volatility_score = 10  # high volatility, higher risk
+    # Narrow the ideal ATR range to reduce false positives
+    if 5 <= atr_pct <= 12:
+        volatility_score = 18
+    elif atr_pct > 12:
+        volatility_score = 9  # high volatility, higher risk
         
-    # ── 4. Volume Score (20 pts) ─────────────────────────────────────────
+    # ── 4. Volume Score (18 pts) ─────────────────────────────────────────
     volume_score = 0
-    if rel_vol > 1.2:
-        volume_score += 10
-    if (volume * close) > 500000:
-        volume_score += 10
-        
+    # Require stronger relative volume and larger dollar volume
+    if rel_vol >= 1.5:
+        volume_score += 9
+    if (volume * close) > 1000000:  # $1M
+        volume_score += 9
+
     total_score = trend_score + momentum_score + volatility_score + volume_score
+
+    rating = float(total_score)
     
     # Dynamic Entry/SL/TP
     entry_price = close
@@ -134,11 +140,18 @@ def calculate_mgpr(row: dict) -> dict:
     if momentum_score >= 20: rationale_parts.append(f"Optimal momentum (RSI {rsi:.1f}).")
     if volume_score >= 10: rationale_parts.append(f"Increased relative volume ({rel_vol:.1f}x).")
     
+    macd_signal_label = "Neutral"
+    if macd > macd_signal:
+        macd_signal_label = "Bullish Cross"
+    elif macd < macd_signal:
+        macd_signal_label = "Bearish Cross"
+
     return {
         "ticker": ticker,
         "exchange": exchange,
-        "company": row['description'],
+        "company": row.get('description', row.get('company', '')),
         "total_score": total_score,
+        "rating": rating,
         "momentum_score": momentum_score,
         "trend_score": trend_score,
         "volatility_score": volatility_score,
@@ -148,7 +161,7 @@ def calculate_mgpr(row: dict) -> dict:
         "stop_loss": stop_loss,
         "take_profit": take_profit,
         "rsi": rsi,
-        "macd_signal": "Bullish Cross" if macd > macd_signal else "Neutral",
+        "macd_signal": macd_signal_label,
         "atr_pct": round(atr_pct, 2),
         "high_52w": row.get('high_52w', 0), # placeholder if not in row
         "low_52w": row.get('low_52w', 0),   # placeholder if not in row
