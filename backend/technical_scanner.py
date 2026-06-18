@@ -89,44 +89,45 @@ def calculate_mgpr(row: dict) -> dict:
     rel_vol = row['relative_volume_10d_calc']
     volume = row['volume']
     
-    # ── 1. Trend Score (30 pts) ──────────────────────────────────────────
-    trend_score = 0
+    # ── 1. Trend Score (25 pts) ──────────────────────────────────────────
+    trend_score = 0.0
     if close > ema20 > ema50:
-        trend_score += 14
+        trend_score += 12.5
     if macd > macd_signal:
-        trend_score += 13
+        trend_score += 12.5
         
-    # ── 2. Momentum Score (27 pts max) ───────────────────────────────────────
+    # ── 2. Momentum Score (25 pts max) ───────────────────────────────────────
     # Tighten RSI sweet-spot to 55-70 for stronger signals
-    momentum_score = 0
+    momentum_score = 0.0
     if 55 <= rsi <= 70:
-        momentum_score += 18
+        momentum_score += 15.0
     elif rsi > 70:
-        momentum_score += 9  # slightly overbought but still positive
+        momentum_score += 7.0  # slightly overbought but still positive
 
     if ema20 > ema50:
-        momentum_score += 9
+        momentum_score += 10.0
         
-    # ── 3. Volatility Score (18 pts) ─────────────────────────────────────
-    volatility_score = 0
+    # ── 3. Volatility Score (25 pts) ─────────────────────────────────────
+    volatility_score = 0.0
     atr_pct = (atr / close * 100) if close > 0 else 0
     # Narrow the ideal ATR range to reduce false positives
     if 5 <= atr_pct <= 12:
-        volatility_score = 18
+        volatility_score = 25.0
     elif atr_pct > 12:
-        volatility_score = 9  # high volatility, higher risk
+        volatility_score = 12.5  # high volatility, higher risk
         
-    # ── 4. Volume Score (18 pts) ─────────────────────────────────────────
-    volume_score = 0
+    # ── 4. Volume Score (25 pts) ─────────────────────────────────────────
+    volume_score = 0.0
     # Require stronger relative volume and larger dollar volume
     if rel_vol >= 1.5:
-        volume_score += 9
+        volume_score += 12.5
     if (volume * close) > 1000000:  # $1M
-        volume_score += 9
+        volume_score += 12.5
 
-    total_score = trend_score + momentum_score + volatility_score + volume_score
+    total_score = round(trend_score + momentum_score + volatility_score + volume_score, 1)
 
     rating = float(total_score)
+
     
     # Dynamic Entry/SL/TP
     entry_price = close

@@ -78,7 +78,8 @@ def determine_variant(atr_pct: float, dollar_volume_m: float, spy_gap: float = 0
     """
     Returns 'V1', 'V2', or None based on WSV Mastery rules:
     - V1: Earnings months only, ATR >= 3.5%, Vol $30-100M.
-    - V2: Non-earnings months, ATR 7-20%, Vol $30M-10B, SPY Gap <= 0.5%.
+    - V2: Non-earnings months, ATR 7-20%, Vol $30M-10B. 
+          SPY Timing Filter (Gap <= 0.5%) only applies to high-volume stocks (>= $100M).
     """
     in_earnings = is_earnings_season()
     
@@ -93,12 +94,16 @@ def determine_variant(atr_pct: float, dollar_volume_m: float, spy_gap: float = 0
 
     # 2. Variant 2 (Chapter 1, 26 & 28)
     # Book says avoid V2 during earnings season (Chapter 28)
-    # Also skip if SPY gap > 0.5% (Chapter 26)
+    # Also skip if SPY gap > 0.5% (Chapter 26) - only applies to high-volume stocks
+    is_spy_stable = True
+    if dollar_volume_m >= 100.0:
+        is_spy_stable = (abs(spy_gap) <= SPY_GAP_THRESHOLD)
+
     v2_ok = (
         not in_earnings
         and V2_ATR_MIN <= atr_pct <= V2_ATR_MAX
         and V2_VOL_MIN_M <= dollar_volume_m <= V2_VOL_MAX_M
-        and abs(spy_gap) <= SPY_GAP_THRESHOLD
+        and is_spy_stable
     )
     if v2_ok:
         return "V2"
@@ -133,6 +138,11 @@ def score_trade(
         logger.debug(f"{trade['ticker']} doesn't qualify for WSV V1 or V2 — skipping")
         return None
 
+    # Filter out repeat buys entirely per Chapter 27 guidelines
+    if is_repeat:
+        logger.debug(f"{trade['ticker']} is a repeat buy — skipping entirely")
+        return None
+
     # ── 1. Insider Strength (0-25) ───────────────────────────────────────────
     # Base: transaction value
     value_m = trade["value"] / 1_000_000
@@ -143,19 +153,15 @@ def score_trade(
     if any(t in title_lower for t in SENIOR_TITLES):
         strength = min(strength + 0.2, 1.0)
 
-    # Penalise repeat buys
-    if is_repeat:
-        strength *= 0.5
-
     # Multiple insiders buying same day boost
     if same_day_count >= 3:
         strength = min(strength + 0.3, 1.0)
     elif same_day_count == 2:
         strength = min(strength + 0.15, 1.0)
 
-    insider_strength_score = round(strength * 22.5, 1)
+    insider_strength_score = round(strength * 25.0, 1)
 
-    # ── 2. Volatility Match (0-22.5) ───────────────────────────────────────────
+    # ── 2. Volatility Match (0-25) ───────────────────────────────────────────
     if variant == "V1":
         # V1: want ATR >= 3.5% — more the better up to ~8%
         vol_score = min((atr_pct - V1_ATR_MIN) / 4.5, 1.0) if atr_pct >= V1_ATR_MIN else 0.4
@@ -168,9 +174,9 @@ def score_trade(
         else:
             vol_score = 0.3
 
-    volatility_score = round(vol_score * 22.5, 1)
+    volatility_score = round(vol_score * 25.0, 1)
 
-    # ── 3. Liquidity Score (0-22.5) ────────────────────────────────────────────
+    # ── 3. Liquidity Score (0-25) ────────────────────────────────────────────
     if variant == "V1":
         # Sweet spot $30M-$100M
         if V1_VOL_MIN_M <= dollar_volume_m <= V1_VOL_MAX_M:
@@ -185,18 +191,14 @@ def score_trade(
         else:
             liq_score = 0.2
 
-    liquidity_score = round(liq_score * 22.5, 1)
+    liquidity_score = round(liq_score * 25.0, 1)
 
-    # ── 4. Timing Score (0-22.5) ───────────────────────────────────────────────
+    # ── 4. Timing Score (0-25) ───────────────────────────────────────────────
     timing = 1.0
 
     # Earnings season bonus for V1
     if variant == "V1" and is_earnings_season():
         timing = min(timing + 0.2, 1.0)
-
-    # Penalise repeat buys
-    if is_repeat:
-        timing *= 0.6
 
     # SPY gap caution
     spy_gap_note = ""
@@ -209,7 +211,7 @@ def score_trade(
     recency = max(1.0 - (days_ago / 5.0), 0.5)
     timing *= recency
 
-    timing_score = round(timing * 22.5, 1)
+    timing_score = round(timing * 25.0, 1)
 
     # ── Total score ──────────────────────────────────────────────────────────
     total = insider_strength_score + volatility_score + liquidity_score + timing_score
@@ -226,6 +228,7 @@ def score_trade(
         rating_label = "Weak"
 
     rating = float(round(total, 1))
+
 
     # ── SL / TP based on variant ─────────────────────────────────────────────
     # Standard Mastery SL/TP targets using ATR
