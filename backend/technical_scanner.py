@@ -97,37 +97,85 @@ def calculate_mgpr(row: dict) -> dict:
         trend_score += 12.5
         
     # ── 2. Momentum Score (25 pts max) ───────────────────────────────────────
-    # Tighten RSI sweet-spot to 55-70 for stronger signals
-    momentum_score = 0.0
-    if 55 <= rsi <= 70:
-        momentum_score += 15.0
-    elif rsi > 70:
-        momentum_score += 7.0  # slightly overbought but still positive
+    # RSI sweet-spot: 55 to 70. Trapezoidal function:
+    #   - Below 45: 0.0 pts
+    #   - 45 to 55: scales linearly from 0.0 to 15.0 pts
+    #   - 55 to 70: full 15.0 pts
+    #   - 70 to 85: scales down linearly from 15.0 to 5.0 pts
+    #   - Above 85: 5.0 pts
+    rsi_pts = 0.0
+    if rsi >= 55 and rsi <= 70:
+        rsi_pts = 15.0
+    elif rsi >= 45 and rsi < 55:
+        rsi_pts = (rsi - 45.0) / 10.0 * 15.0
+    elif rsi > 70 and rsi <= 85:
+        rsi_pts = 15.0 - ((rsi - 70.0) / 15.0 * 10.0)
+    elif rsi > 85:
+        rsi_pts = 5.0
 
-    if ema20 > ema50:
-        momentum_score += 10.0
+    # EMA 20 > EMA 50 distance (10 pts):
+    #   - Scales linearly based on diff_pct = (ema20 - ema50) / ema50 * 100
+    #   - 0.0% to 1.0% scales from 0.0 to 10.0 pts.
+    #   - >= 1.0% gets full 10.0 pts.
+    ema_diff_pts = 0.0
+    if ema50 > 0:
+        diff_pct = (ema20 - ema50) / ema50 * 100.0
+        if diff_pct >= 1.0:
+            ema_diff_pts = 10.0
+        elif diff_pct > 0.0:
+            ema_diff_pts = diff_pct * 10.0
+    
+    momentum_score = round(rsi_pts + ema_diff_pts, 1)
         
     # ── 3. Volatility Score (25 pts) ─────────────────────────────────────
+    # ATR% optimal sweet spot: 5% to 12%.
+    #   - Below 3.0%: 0.0 pts
+    #   - 3.0% to 5.0%: scales linearly from 0.0 to 25.0 pts
+    #   - 5.0% to 12.0%: full 25.0 pts
+    #   - 12.0% to 20.0%: scales down linearly from 25.0 to 12.5 pts
+    #   - Above 20.0%: 12.5 pts
     volatility_score = 0.0
     atr_pct = (atr / close * 100) if close > 0 else 0
-    # Narrow the ideal ATR range to reduce false positives
-    if 5 <= atr_pct <= 12:
+    if atr_pct >= 5.0 and atr_pct <= 12.0:
         volatility_score = 25.0
-    elif atr_pct > 12:
-        volatility_score = 12.5  # high volatility, higher risk
+    elif atr_pct >= 3.0 and atr_pct < 5.0:
+        volatility_score = (atr_pct - 3.0) / 2.0 * 25.0
+    elif atr_pct > 12.0 and atr_pct <= 20.0:
+        volatility_score = 25.0 - ((atr_pct - 12.0) / 8.0 * 12.5)
+    elif atr_pct > 20.0:
+        volatility_score = 12.5
+        
+    volatility_score = round(volatility_score, 1)
         
     # ── 4. Volume Score (25 pts) ─────────────────────────────────────────
-    volume_score = 0.0
-    # Require stronger relative volume and larger dollar volume
+    # Relative volume (12.5 pts):
+    #   - Scales from 0.5 to 1.5 relative volume.
+    #   - <= 0.5: 0.0 pts
+    #   - 0.5 to 1.5: scales from 0.0 to 12.5 pts
+    #   - >= 1.5: 12.5 pts
+    rel_vol_pts = 0.0
     if rel_vol >= 1.5:
-        volume_score += 12.5
-    if (volume * close) > 1000000:  # $1M
-        volume_score += 12.5
+        rel_vol_pts = 12.5
+    elif rel_vol > 0.5:
+        rel_vol_pts = (rel_vol - 0.5) / 1.0 * 12.5
+
+    # Dollar Volume (12.5 pts):
+    #   - Scales from $100K to $1M.
+    #   - <= $100K: 0.0 pts
+    #   - $100K to $1M: scales from 0.0 to 12.5 pts
+    #   - >= $1M: 12.5 pts
+    dollar_vol = volume * close
+    dollar_vol_pts = 0.0
+    if dollar_vol >= 1000000.0:
+        dollar_vol_pts = 12.5
+    elif dollar_vol > 100000.0:
+        dollar_vol_pts = (dollar_vol - 100000.0) / 900000.0 * 12.5
+
+    volume_score = round(rel_vol_pts + dollar_vol_pts, 1)
 
     total_score = round(trend_score + momentum_score + volatility_score + volume_score, 1)
 
     rating = float(total_score)
-
     
     # Dynamic Entry/SL/TP
     entry_price = close
@@ -137,9 +185,9 @@ def calculate_mgpr(row: dict) -> dict:
     
     # Rationale
     rationale_parts = []
-    if trend_score >= 30: rationale_parts.append("Strong multi-EMA trend with MACD confirmation.")
-    if momentum_score >= 20: rationale_parts.append(f"Optimal momentum (RSI {rsi:.1f}).")
-    if volume_score >= 10: rationale_parts.append(f"Increased relative volume ({rel_vol:.1f}x).")
+    if trend_score >= 25.0: rationale_parts.append("Strong multi-EMA trend with MACD confirmation.")
+    if momentum_score >= 20.0: rationale_parts.append(f"Optimal momentum (RSI {rsi:.1f}).")
+    if volume_score >= 12.5: rationale_parts.append(f"Increased relative volume ({rel_vol:.1f}x).")
     
     macd_signal_label = "Neutral"
     if macd > macd_signal:
