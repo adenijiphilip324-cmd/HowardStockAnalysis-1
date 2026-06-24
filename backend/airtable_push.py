@@ -212,8 +212,8 @@ def log_alert(signals: list[dict], raw_record_ids: list[str], status: str = "Sen
         }
         if raw_record_ids:
             fields["Stocks Included"] = raw_record_ids[:10]  # link to raw records
-        _post(TABLE_ALERTS, fields)
-        logger.info(f"Alert logged → Alert History ({status})")
+        # _post(TABLE_ALERTS, fields)
+        # logger.info(f"Alert logged → Alert History ({status})")
     except Exception as e:
         logger.debug(f"Alert history logging skipped: {e}")
 

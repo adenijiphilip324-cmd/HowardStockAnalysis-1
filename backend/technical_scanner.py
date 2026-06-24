@@ -120,10 +120,10 @@ def calculate_mgpr(row: dict) -> dict:
     ema_diff_pts = 0.0
     if ema50 > 0:
         diff_pct = (ema20 - ema50) / ema50 * 100.0
-        if diff_pct >= 1.0:
+        if diff_pct >= 5.0:
             ema_diff_pts = 10.0
         elif diff_pct > 0.0:
-            ema_diff_pts = diff_pct * 10.0
+            ema_diff_pts = (diff_pct / 5.0) * 10.0
     
     momentum_score = round(rsi_pts + ema_diff_pts, 1)
         
@@ -160,16 +160,16 @@ def calculate_mgpr(row: dict) -> dict:
         rel_vol_pts = (rel_vol - 0.5) / 1.0 * 12.5
 
     # Dollar Volume (12.5 pts):
-    #   - Scales from $100K to $1M.
+    #   - Scales from $100K to $5M.
     #   - <= $100K: 0.0 pts
-    #   - $100K to $1M: scales from 0.0 to 12.5 pts
-    #   - >= $1M: 12.5 pts
+    #   - $100K to $5M: scales from 0.0 to 12.5 pts
+    #   - >= $5M: 12.5 pts
     dollar_vol = volume * close
     dollar_vol_pts = 0.0
-    if dollar_vol >= 1000000.0:
+    if dollar_vol >= 5000000.0:
         dollar_vol_pts = 12.5
     elif dollar_vol > 100000.0:
-        dollar_vol_pts = (dollar_vol - 100000.0) / 900000.0 * 12.5
+        dollar_vol_pts = (dollar_vol - 100000.0) / 4900000.0 * 12.5
 
     volume_score = round(rel_vol_pts + dollar_vol_pts, 1)
 
