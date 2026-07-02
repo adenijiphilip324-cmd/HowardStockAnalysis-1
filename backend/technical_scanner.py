@@ -173,7 +173,10 @@ def calculate_mgpr(row: dict) -> dict:
 
     volume_score = round(rel_vol_pts + dollar_vol_pts, 1)
 
-    total_score = round(trend_score + momentum_score + volatility_score + volume_score, 1)
+    # Apply a realistic confidence cap so no score ever reaches perfection (99.9)
+    # Maximum possible score becomes 96.5
+    raw_total = trend_score + momentum_score + volatility_score + volume_score
+    total_score = round(raw_total * 0.965, 1)
 
     rating = float(total_score)
     
